@@ -18,13 +18,27 @@ pub fn test_config(database_url: &str) -> Config {
     Config::from_vars(&vars).expect("test config")
 }
 
-pub async fn test_state() -> Option<AppState> {
+/// PostgreSQL is required. Missing URL or an unreachable server fails the test
+/// process; it must not skip and count as passing.
+pub async fn test_state() -> AppState {
     let database_url = std::env::var("DATABASE_URL")
         .ok()
-        .filter(|url| !url.is_empty())?;
+        .filter(|url| !url.is_empty());
+    let Some(database_url) = database_url else {
+        panic!(
+            "DATABASE_URL is required for integration tests. Start docker compose, then set \
+             DATABASE_URL=postgres://studysync:studysync_dev_only_change_me@127.0.0.1:5432/studysync?sslmode=disable"
+        );
+    };
     let config = test_config(&database_url);
-    let db = studysync_backend::db::create_pool(&config).await.ok()?;
-    Some(AppState::new(config, db))
+    let db = match studysync_backend::db::create_pool(&config).await {
+        Ok(pool) => pool,
+        Err(_) => panic!(
+            "PostgreSQL is required for integration tests but is unreachable. \
+             Start docker compose and confirm DATABASE_URL (do not print the URL; it contains a password)."
+        ),
+    };
+    AppState::new(config, db)
 }
 
 pub fn unique_email() -> String {

@@ -90,12 +90,13 @@ async fn request_ids_are_uuid_v7_strings() {
 
 #[tokio::test]
 async fn ready_returns_ready_when_postgres_is_available() {
-    let database_url = match std::env::var("DATABASE_URL") {
-        Ok(url) if !url.is_empty() => url,
-        _ => {
-            eprintln!("skipping: set DATABASE_URL to run the live readiness test");
-            return;
-        }
+    let database_url = std::env::var("DATABASE_URL")
+        .ok()
+        .filter(|url| !url.is_empty());
+    let Some(database_url) = database_url else {
+        panic!(
+            "DATABASE_URL is required for integration tests. Start docker compose and export DATABASE_URL."
+        );
     };
 
     let mut vars = HashMap::new();
@@ -109,10 +110,9 @@ async fn ready_returns_ready_when_postgres_is_available() {
 
     let db = match studysync_backend::db::create_pool(&config).await {
         Ok(pool) => pool,
-        Err(_) => {
-            eprintln!("skipping: DATABASE_URL is set but PostgreSQL is not reachable");
-            return;
-        }
+        Err(_) => panic!(
+            "PostgreSQL is required for integration tests but is unreachable (URL not logged)."
+        ),
     };
 
     let app = api::router(AppState::new(config, db));
