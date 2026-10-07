@@ -1,10 +1,38 @@
 use chrono::NaiveTime;
 use chrono_tz::Tz;
+use serde::Deserialize;
 
-use crate::api::dto::{AvailabilityInput, GroupPreferencesInput};
 use crate::error::AppError;
 
 pub const VALID_YEARS: &[&str] = &["Freshman", "Sophomore", "Junior", "Senior", "Graduate"];
+
+/// Clock-in request for a weekly availability slot (API camelCase).
+///
+/// Overnight windows (for example 23:00 → 01:00) are stored as a single row
+/// with `end_time < start_time`. Matching must treat that as two half-open
+/// intervals on the civil clock: `[start, 24:00)` on `day_of_week` and
+/// `[00:00, end)` on the following day. Equal start and end is invalid (zero length).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailabilityInput {
+    pub day_of_week: i16,
+    pub start_time: String,
+    pub end_time: String,
+    pub timezone: String,
+}
+
+/// Group-size and duration input. `study_goals` is a name list resolved to lookup rows.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupPreferencesInput {
+    pub preferred_group_size_min: Option<i16>,
+    pub preferred_group_size_max: Option<i16>,
+    pub group_size: Option<i16>,
+    pub session_duration_minutes: Option<i16>,
+    pub session_duration: Option<i16>,
+    #[serde(default)]
+    pub study_goals: Vec<String>,
+}
 
 pub fn normalize_email(email: &str) -> Result<String, AppError> {
     let email = email.trim();
@@ -42,8 +70,13 @@ pub fn validate_performance_level(level: i16) -> Result<i16, AppError> {
     }
 }
 
+/// IANA names are validated in Rust (`chrono-tz`). PostgreSQL stores the
+/// identifier as `text`; it does not embed the IANA database as a CHECK.
 pub fn validate_timezone(timezone: &str) -> Result<String, AppError> {
     let timezone = timezone.trim();
+    if timezone.is_empty() {
+        return Err(AppError::validation("timezone is required"));
+    }
     timezone
         .parse::<Tz>()
         .map(|_| timezone.to_string())
@@ -69,8 +102,10 @@ pub fn parse_availability(
         }
         let start = parse_clock(&slot.start_time, "startTime")?;
         let end = parse_clock(&slot.end_time, "endTime")?;
-        if end <= start {
-            return Err(AppError::validation("endTime must be after startTime"));
+        if end == start {
+            return Err(AppError::validation(
+                "endTime must differ from startTime (zero-length windows are not allowed)",
+            ));
         }
         let timezone = validate_timezone(&slot.timezone)?;
         parsed.push((slot.day_of_week, start, end, timezone));
@@ -143,6 +178,9 @@ pub fn slugify(name: &str) -> String {
     slug.trim_end_matches('-').to_string()
 }
 
+/// Object-storage key placeholder. The future media service must own uploads,
+/// bind keys to the authenticated user, and issue authorized URLs. Clients
+/// must not treat this field as permission to read arbitrary bucket objects.
 pub fn validate_storage_key(key: &str) -> Result<String, AppError> {
     let key = key.trim();
     if key.is_empty() {
@@ -160,20 +198,48 @@ pub fn validate_storage_key(key: &str) -> Result<String, AppError> {
     Ok(key.to_string())
 }
 
+pub fn normalize_names(values: &[String]) -> Result<Vec<String>, AppError> {
+    let mut names = Vec::new();
+    for value in values {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::validation("list values must not be blank"));
+        }
+        if !names
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
+        {
+            names.push(trimmed.to_string());
+        }
+    }
+    Ok(names)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::dto::AvailabilityInput;
 
     #[test]
-    fn availability_rejects_inverted_window() {
+    fn availability_rejects_zero_length() {
         let slots = [AvailabilityInput {
             day_of_week: 0,
             start_time: "18:00".into(),
-            end_time: "17:00".into(),
+            end_time: "18:00".into(),
             timezone: "America/Chicago".into(),
         }];
         assert!(parse_availability(&slots).is_err());
+    }
+
+    #[test]
+    fn availability_accepts_overnight_window() {
+        let slots = [AvailabilityInput {
+            day_of_week: 0,
+            start_time: "23:00".into(),
+            end_time: "01:00".into(),
+            timezone: "America/Chicago".into(),
+        }];
+        let parsed = parse_availability(&slots).unwrap();
+        assert!(parsed[0].2 < parsed[0].1);
     }
 
     #[test]
@@ -192,6 +258,19 @@ mod tests {
     #[test]
     fn rejects_unknown_timezone() {
         assert!(validate_timezone("Not/AZone").is_err());
+    }
+
+    #[test]
+    fn rejects_missing_timezone() {
+        assert!(validate_timezone("  ").is_err());
+    }
+
+    #[test]
+    fn accepts_valid_iana_timezone() {
+        assert_eq!(
+            validate_timezone("America/New_York").unwrap(),
+            "America/New_York"
+        );
     }
 
     #[test]

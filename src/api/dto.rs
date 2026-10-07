@@ -2,6 +2,8 @@ use chrono::NaiveTime;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::domain::{AvailabilityInput, GroupPreferencesInput};
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegisterRequest {
@@ -39,27 +41,9 @@ pub struct RefreshRequest {
     pub refresh_token: String,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AvailabilityInput {
-    pub day_of_week: i16,
-    pub start_time: String,
-    pub end_time: String,
-    pub timezone: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GroupPreferencesInput {
-    pub preferred_group_size_min: Option<i16>,
-    pub preferred_group_size_max: Option<i16>,
-    pub group_size: Option<i16>,
-    pub session_duration_minutes: Option<i16>,
-    pub session_duration: Option<i16>,
-    #[serde(default)]
-    pub study_goals: Vec<String>,
-}
-
+/// Partial profile update. `profilePictureKey` is a storage-key placeholder only.
+/// Future media APIs must mint keys after an authenticated upload; presenting a
+/// key here must never authorize object-storage GET/PUT on its own.
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PatchMeRequest {

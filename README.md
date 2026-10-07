@@ -4,7 +4,7 @@ This is the **new** production API. It is a separate Git repository from the leg
 
 Do not copy this project into the old Flask tree. Do not push it to `DillonOpperman/studysync-backend`.
 
-Phase 1 provides configuration, tracing, SQLx migrations, a PostgreSQL pool, and `/api/v1/health` plus `/api/v1/ready`. Authentication, users, chat, matching, and media APIs are not implemented yet.
+This repository currently implements Phases 1–2: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, and profiles. Groups, chat, matching, and media APIs are later phases.
 
 ## Prerequisites (Windows)
 
@@ -120,20 +120,18 @@ Git Bash: `curl http://127.0.0.1:8080/api/v1/health`
 
 ## Tests
 
-`cargo test` does **not** require Redis. The readiness failure test uses a lazy PostgreSQL pool pointed at a closed port.
+Unit tests (in `src/`, plus HTTP tests that use a closed-port lazy pool) do **not** require Redis or a live PostgreSQL instance.
 
-The live readiness success test runs only when `DATABASE_URL` points at a reachable database; otherwise it skips.
+Integration tests in `tests/auth.rs`, `tests/profile.rs`, and the live `/ready` success check **require** a reachable PostgreSQL. They **fail** (they do not skip) if `DATABASE_URL` is missing or the database is down.
 
-```powershell
-cargo fmt
-cargo clippy -- -D warnings
-cargo test
-```
-
-With Compose running:
+1. Start Compose and run migrations (`sqlx migrate run`).
+2. Export `DATABASE_URL`.
+3. Run the full suite:
 
 ```powershell
 $env:DATABASE_URL = "postgres://studysync:studysync_dev_only_change_me@127.0.0.1:5432/studysync?sslmode=disable"
+cargo fmt
+cargo clippy -- -D warnings
 cargo test
 ```
 
@@ -144,6 +142,26 @@ export DATABASE_URL="postgres://studysync:studysync_dev_only_change_me@127.0.0.1
 cargo test
 ```
 
+Lib-only unit tests (no live Postgres):
+
+```powershell
+cargo test --lib
+```
+
+## Availability model
+
+Weekly slots store `day_of_week` (0 = Monday … 6 = Sunday), `start_time`, `end_time`, and an IANA timezone name (validated in Rust; PostgreSQL keeps `text`).
+
+Same-day windows have `end_time > start_time`. Overnight windows (for example 23:00 → 01:00) are stored as **one row** with `end_time < start_time`. Matching must expand those as `[start, 24:00)` on `day_of_week` and `[00:00, end)` on the next day. Zero-length windows (`end == start`) are rejected.
+
+## Profile pictures
+
+`profilePictureKey` is a future object-storage key. It is not authorization. The media phase must own uploads, bind keys to the user, and issue signed URLs. Clients must not present arbitrary keys as proof of access.
+
+## Logout
+
+`POST /api/v1/auth/logout` revokes **that refresh session / device** only. Repeating logout with the same token is a no-op success. It is not a global sign-out.
+
 ## Stop infrastructure
 
 ```powershell
@@ -152,9 +170,9 @@ docker compose down
 
 Volumes persist until you run `docker compose down -v`.
 
-## Later-phase crates (not in Phase 1)
+## Later-phase crates
 
-These will be added when needed: `jsonwebtoken`, `argon2`, `bcrypt`, `redis`, `aws-sdk-s3` (or equivalent), `fastembed`, `pgvector` (Rust crate), `validator`.
+These will be added when needed: `redis`, `aws-sdk-s3` (or equivalent), `fastembed`, `pgvector` (Rust crate).
 
 ## Security notes
 
