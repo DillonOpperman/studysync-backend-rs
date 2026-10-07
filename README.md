@@ -158,6 +158,14 @@ Same-day windows have `end_time > start_time`. Overnight windows (for example 23
 
 `profilePictureKey` is a future object-storage key. It is not authorization. The media phase must own uploads, bind keys to the user, and issue signed URLs. Clients must not present arbitrary keys as proof of access.
 
+## Friendships (Phase 4)
+
+Accepted friendships are stored as one undirected row in `friendships (user_low, user_high)` with `user_low < user_high`. A→B and B→A cannot become two friendships. `are_friends(a, b)` is symmetric.
+
+Pending friend requests use a unique index on `LEAST/GREATEST(requester_id, recipient_id)` so only one pending pair exists. Rejected requests can be sent again.
+
+Direct messages are allowed when users are friends, share an active study group, or have an accepted message request (either direction). Otherwise, messaging an active group leader creates a **message request** (HTTP 202) instead of a DM. Blocking (`POST /api/v1/blocks`) is bidirectional for social actions: friend requests, DMs, and message requests fail with `user_blocked`. Blocked conversations cannot be listed.
+
 ## Groups (Phase 3)
 
 `POST /api/v1/groups` creates a group; the caller becomes the sole active leader. Recurring slots use the same overnight rules as personal availability (`end < start` wraps midnight).
