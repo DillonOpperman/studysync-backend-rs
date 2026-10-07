@@ -7,6 +7,7 @@ pub mod groups;
 pub mod identity;
 pub mod notifications;
 pub mod profile;
+pub mod social;
 
 /// Create a PostgreSQL pool. Failures must not include credentials in user-facing output.
 pub async fn create_pool(config: &Config) -> Result<PgPool, sqlx::Error> {

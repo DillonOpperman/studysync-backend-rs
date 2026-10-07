@@ -222,3 +222,98 @@ pub struct NotificationDto {
     pub read_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FriendRequestCreate {
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FriendRequestDto {
+    pub id: Uuid,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub requester: UserSummaryDto,
+    pub recipient: UserSummaryDto,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FriendRequestListDto {
+    pub incoming: Vec<FriendRequestDto>,
+    pub outgoing: Vec<FriendRequestDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FriendListDto {
+    pub user: UserSummaryDto,
+    pub friends_since: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockUserRequest {
+    pub user_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendDirectMessageRequest {
+    pub recipient_id: Uuid,
+    pub content: String,
+    pub message_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectMessageDto {
+    pub id: Uuid,
+    pub sender_id: Uuid,
+    pub receiver_id: Uuid,
+    pub content: String,
+    pub message_type: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub read_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageRequestDto {
+    pub id: Uuid,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub sender: UserSummaryDto,
+    pub receiver: UserSummaryDto,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "outcome", rename_all = "camelCase")]
+pub enum SendDirectMessageResponse {
+    DirectMessage {
+        message: DirectMessageDto,
+    },
+    MessageRequest {
+        #[serde(rename = "messageRequest")]
+        message_request: MessageRequestDto,
+    },
+}
+
+#[derive(Debug)]
+pub enum SendDmOutcome {
+    DirectMessage { message: DirectMessageDto },
+    NewMessageRequest { message_request: MessageRequestDto },
+    ExistingMessageRequest { message_request: MessageRequestDto },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectMessageListQuery {
+    pub before: Option<Uuid>,
+    pub after: Option<Uuid>,
+    pub limit: Option<i64>,
+}

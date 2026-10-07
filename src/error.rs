@@ -48,6 +48,24 @@ pub enum AppError {
     CannotRemoveLeader,
     #[error("notification not found")]
     NotificationNotFound,
+    #[error("cannot interact with this user")]
+    UserBlocked,
+    #[error("already friends")]
+    AlreadyFriends,
+    #[error("a friend request is already pending")]
+    FriendRequestPending,
+    #[error("friend request has already been decided")]
+    FriendRequestDecided,
+    #[error("friend request not found")]
+    FriendRequestNotFound,
+    #[error("a message request is already pending")]
+    MessageRequestPending,
+    #[error("message request has already been decided")]
+    MessageRequestDecided,
+    #[error("message request not found")]
+    MessageRequestNotFound,
+    #[error("cannot send a direct message to this user")]
+    CannotMessage,
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +109,15 @@ impl AppError {
             Self::CannotLeaveAsLeader => "cannot_leave_as_leader",
             Self::CannotRemoveLeader => "cannot_remove_leader",
             Self::NotificationNotFound => "notification_not_found",
+            Self::UserBlocked => "user_blocked",
+            Self::AlreadyFriends => "already_friends",
+            Self::FriendRequestPending => "friend_request_pending",
+            Self::FriendRequestDecided => "friend_request_already_decided",
+            Self::FriendRequestNotFound => "friend_request_not_found",
+            Self::MessageRequestPending => "message_request_pending",
+            Self::MessageRequestDecided => "message_request_already_decided",
+            Self::MessageRequestNotFound => "message_request_not_found",
+            Self::CannotMessage => "cannot_message",
         }
     }
 
@@ -110,12 +137,22 @@ impl AppError {
             | Self::GroupArchived
             | Self::GroupFull
             | Self::CannotLeaveAsLeader
-            | Self::CannotRemoveLeader => StatusCode::CONFLICT,
-            Self::NotGroupMember | Self::NotGroupLeader => StatusCode::FORBIDDEN,
+            | Self::CannotRemoveLeader
+            | Self::AlreadyFriends
+            | Self::FriendRequestPending
+            | Self::FriendRequestDecided
+            | Self::MessageRequestPending
+            | Self::MessageRequestDecided => StatusCode::CONFLICT,
+            Self::NotGroupMember
+            | Self::NotGroupLeader
+            | Self::UserBlocked
+            | Self::CannotMessage => StatusCode::FORBIDDEN,
             Self::UserNotFound
             | Self::GroupNotFound
             | Self::JoinRequestNotFound
-            | Self::NotificationNotFound => StatusCode::NOT_FOUND,
+            | Self::NotificationNotFound
+            | Self::FriendRequestNotFound
+            | Self::MessageRequestNotFound => StatusCode::NOT_FOUND,
         }
     }
 
@@ -166,6 +203,12 @@ pub fn map_db_error(error: sqlx::Error) -> AppError {
         }
         if db.constraint() == Some("group_members_user_group_key") {
             return AppError::AlreadyMember;
+        }
+        if db.constraint() == Some("friend_requests_one_pending") {
+            return AppError::FriendRequestPending;
+        }
+        if db.constraint() == Some("message_requests_one_pending") {
+            return AppError::MessageRequestPending;
         }
         tracing::error!(
             constraint = db.constraint(),
