@@ -13,6 +13,7 @@ use uuid::Uuid;
 
 use crate::AppState;
 
+pub mod dto;
 pub mod v1;
 
 const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
