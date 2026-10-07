@@ -1,10 +1,11 @@
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::Router;
 
 use crate::AppState;
 
 mod auth;
 mod friends;
+mod group_chat;
 mod groups;
 mod health;
 mod messages;
@@ -68,5 +69,17 @@ pub fn router() -> Router<AppState> {
         .route(
             "/message-requests/{id}/reject",
             post(messages::reject_message_request),
+        )
+        .route(
+            "/groups/{group_id}/messages",
+            get(group_chat::list_messages).post(group_chat::post_message),
+        )
+        .route(
+            "/messages/{id}",
+            patch(group_chat::edit_message).delete(group_chat::delete_message),
+        )
+        .route(
+            "/messages/{id}/reactions",
+            post(group_chat::toggle_reaction),
         )
 }

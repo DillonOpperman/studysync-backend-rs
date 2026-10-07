@@ -66,6 +66,18 @@ pub enum AppError {
     MessageRequestNotFound,
     #[error("cannot send a direct message to this user")]
     CannotMessage,
+    #[error("message not found")]
+    MessageNotFound,
+    #[error("message has been deleted")]
+    MessageDeleted,
+    #[error("message can no longer be edited")]
+    EditWindowExpired,
+    #[error("not subscribed to this group")]
+    NotSubscribed,
+    #[error("too many requests")]
+    RateLimited,
+    #[error("not allowed to modify this message")]
+    CannotModifyMessage,
 }
 
 #[derive(Debug, Serialize)]
@@ -118,6 +130,12 @@ impl AppError {
             Self::MessageRequestDecided => "message_request_already_decided",
             Self::MessageRequestNotFound => "message_request_not_found",
             Self::CannotMessage => "cannot_message",
+            Self::MessageNotFound => "message_not_found",
+            Self::MessageDeleted => "message_deleted",
+            Self::EditWindowExpired => "edit_window_expired",
+            Self::NotSubscribed => "not_subscribed",
+            Self::RateLimited => "rate_limited",
+            Self::CannotModifyMessage => "cannot_modify_message",
         }
     }
 
@@ -146,13 +164,19 @@ impl AppError {
             Self::NotGroupMember
             | Self::NotGroupLeader
             | Self::UserBlocked
-            | Self::CannotMessage => StatusCode::FORBIDDEN,
+            | Self::CannotMessage
+            | Self::NotSubscribed
+            | Self::EditWindowExpired
+            | Self::CannotModifyMessage => StatusCode::FORBIDDEN,
+            Self::MessageDeleted => StatusCode::CONFLICT,
+            Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::UserNotFound
             | Self::GroupNotFound
             | Self::JoinRequestNotFound
             | Self::NotificationNotFound
             | Self::FriendRequestNotFound
-            | Self::MessageRequestNotFound => StatusCode::NOT_FOUND,
+            | Self::MessageRequestNotFound
+            | Self::MessageNotFound => StatusCode::NOT_FOUND,
         }
     }
 

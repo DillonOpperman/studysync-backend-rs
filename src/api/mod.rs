@@ -29,27 +29,32 @@ impl MakeRequestId for MakeRequestUuidV7 {
 }
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let trace = TraceLayer::new_for_http().make_span_with(|request: &Request| {
+        let request_id = request
+            .headers()
+            .get(REQUEST_ID_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("-");
+        tracing::info_span!(
+            "http",
+            method = %request.method(),
+            path = %request.uri().path(),
+            request_id = %request_id,
+        )
+    });
+
+    // Timeouts apply to REST only. Long-lived WebSockets are idle by design.
+    let http = Router::new()
         .nest("/api/v1", v1::router())
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(30),
-        ))
-        .layer(
-            TraceLayer::new_for_http().make_span_with(|request: &Request| {
-                let request_id = request
-                    .headers()
-                    .get(REQUEST_ID_HEADER)
-                    .and_then(|value| value.to_str().ok())
-                    .unwrap_or("-");
-                tracing::info_span!(
-                    "http",
-                    method = %request.method(),
-                    path = %request.uri().path(),
-                    request_id = %request_id,
-                )
-            }),
-        )
+        ));
+
+    let ws = Router::new().route("/api/v1/ws", axum::routing::get(crate::chat::upgrade));
+
+    http.merge(ws)
+        .layer(trace)
         .layer(PropagateRequestIdLayer::new(REQUEST_ID_HEADER))
         .layer(SetRequestIdLayer::new(REQUEST_ID_HEADER, MakeRequestUuidV7))
         .with_state(state)

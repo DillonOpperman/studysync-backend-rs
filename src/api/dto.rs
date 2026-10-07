@@ -317,3 +317,80 @@ pub struct DirectMessageListQuery {
     pub after: Option<Uuid>,
     pub limit: Option<i64>,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendGroupMessageRequest {
+    pub client_msg_id: Uuid,
+    pub content: String,
+    pub message_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditGroupMessageRequest {
+    pub content: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToggleReactionRequest {
+    pub emoji: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupMessageListQuery {
+    pub before: Option<Uuid>,
+    pub after: Option<Uuid>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactionCountDto {
+    pub emoji: String,
+    pub count: i32,
+    pub me: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupMessageDto {
+    pub id: Uuid,
+    pub group_id: Uuid,
+    pub sender_id: Uuid,
+    pub client_msg_id: Uuid,
+    pub content: String,
+    pub message_type: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub reactions: Vec<ReactionCountDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactionStateDto {
+    pub message_id: Uuid,
+    pub group_id: Uuid,
+    pub reactions: Vec<ReactionCountDto>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupMessagePageDto {
+    pub messages: Vec<GroupMessageDto>,
+    pub pagination: CursorPageDto,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CursorPageDto {
+    pub limit: i64,
+    pub has_more: bool,
+    /// Oldest message id in this page. Pass as `before` to load older history.
+    pub next_before: Option<Uuid>,
+    /// Newest message id in this page. Pass as `after` to recover newer messages.
+    pub next_after: Option<Uuid>,
+}

@@ -4,7 +4,7 @@ This is the **new** production API. It is a separate Git repository from the leg
 
 Do not copy this project into the old Flask tree. Do not push it to `DillonOpperman/studysync-backend`.
 
-This repository currently implements Phases 1–2: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, and profiles. Groups, chat, matching, and media APIs are later phases.
+This repository currently implements Phases 1–5: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, and persistent group chat with authenticated WebSockets. Matching, media uploads, and DM WebSockets are later phases.
 
 ## Prerequisites (Windows)
 
@@ -165,6 +165,22 @@ Accepted friendships are stored as one undirected row in `friendships (user_low,
 Pending friend requests use a unique index on `LEAST/GREATEST(requester_id, recipient_id)` so only one pending pair exists. Rejected requests can be sent again.
 
 Direct messages are allowed when users are friends, share an active study group, or have an accepted message request (either direction). Otherwise, messaging an active group leader creates a **message request** (HTTP 202) instead of a DM. Blocking (`POST /api/v1/blocks`) is bidirectional for social actions: friend requests, DMs, and message requests fail with `user_blocked`. Blocked conversations cannot be listed.
+
+## Group chat (Phase 5)
+
+PostgreSQL is the source of truth. WebSocket delivery is best-effort.
+
+- **REST:** `GET/POST /api/v1/groups/:groupId/messages`, `PATCH/DELETE /api/v1/messages/:id`, `POST /api/v1/messages/:id/reactions`.
+- **WebSocket:** `GET /api/v1/ws?access_token=<jwt>` (query-string auth for React Native). Invalid or expired tokens are rejected before upgrade. Tokens are never logged.
+- **History:** cursor pagination with `?before=<messageId>` (older) or `?after=<messageId>` (newer / reconnect recovery). Default page is the newest messages, returned **oldest-to-newest**. Limit defaults to 50 (max 100). UUID v7 ids are time-ordered cursors.
+- **Idempotency:** `clientMsgId` unique per `(group_id, sender_id)`. Retries return the original canonical message.
+- **Limits:** text/announcement bodies max **4000** characters. In-process per-connection rate limit: 20 sends and 60 ops per 10s. Multi-instance rate limiting will use Redis later.
+- **Edit:** sender only, within 15 minutes. **Delete:** sender or current leader; soft tombstone (`deleted_at`, empty content).
+- **Announcements:** current leader only. Other members get an in-app `group_announcement` notification. Ordinary text messages are not fanned out as notifications.
+- **Hub:** in-memory rooms for a single API process. Bounded outbound queue (64). Slow clients are disconnected. Heartbeat: JSON `ping`/`pong`; idle sockets close after 90s.
+- **Blocks:** members may still persist group messages; live events are not delivered to users who have a block with the actor, and blocked users cannot react to each other's messages. Re-check membership on every send (subscribe is not a permanent grant).
+- **Media:** `message_attachments` exists for a later phase. `image`/`file` types are rejected until then.
+- **Scaling (later):** Instance A/B/C → Redis pub/sub → local hub fan-out. Redis is not used for chat in this phase.
 
 ## Groups (Phase 3)
 

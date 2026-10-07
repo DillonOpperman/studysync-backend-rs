@@ -112,3 +112,16 @@ pub async fn send(
     let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
     (status, json)
 }
+
+#[allow(dead_code)]
+pub async fn spawn_app(state: AppState) -> u16 {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let app = api::router(state);
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.expect("serve");
+    });
+    port
+}
