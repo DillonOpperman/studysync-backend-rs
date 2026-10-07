@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::net::IpAddr;
 use std::time::Duration;
 
@@ -18,7 +19,7 @@ pub enum ConfigError {
 }
 
 /// Process configuration. Secrets are never logged by this type's public helpers.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub database_url: String,
     pub redis_url: Option<String>,
@@ -163,6 +164,21 @@ impl Config {
     }
 }
 
+impl fmt::Debug for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Config")
+            .field("database_url", &"<redacted>")
+            .field("redis_url", &self.redis_url.as_ref().map(|_| "<redacted>"))
+            .field("jwt_secret", &"<redacted>")
+            .field("public_base_url", &self.public_base_url)
+            .field("server_host", &self.server_host)
+            .field("server_port", &self.server_port)
+            .field("rust_log", &self.rust_log)
+            .field("database_pool", &self.database_pool)
+            .finish()
+    }
+}
+
 fn required(vars: &HashMap<String, String>, name: &'static str) -> Result<String, ConfigError> {
     vars.get(name)
         .map(|value| value.trim().to_string())
@@ -259,5 +275,28 @@ mod tests {
         vars.insert("REDIS_URL".into(), "redis://127.0.0.1:6379".into());
         let config = Config::from_vars(&vars).expect("config");
         assert_eq!(config.redis_url.as_deref(), Some("redis://127.0.0.1:6379"));
+    }
+
+    #[test]
+    fn debug_redacts_secrets() {
+        let mut vars = base_vars();
+        vars.insert(
+            "DATABASE_URL".into(),
+            "postgres://studysync:super-secret-db-pass@127.0.0.1:5432/studysync".into(),
+        );
+        vars.insert(
+            "JWT_SECRET".into(),
+            "abcdefghijklmnopqrstuvwxyz012345".into(),
+        );
+        vars.insert(
+            "REDIS_URL".into(),
+            "redis://:redis-secret@127.0.0.1:6379".into(),
+        );
+        let config = Config::from_vars(&vars).expect("config");
+        let rendered = format!("{config:?}");
+        assert!(!rendered.contains("super-secret-db-pass"));
+        assert!(!rendered.contains("abcdefghijklmnopqrstuvwxyz012345"));
+        assert!(!rendered.contains("redis-secret"));
+        assert!(rendered.contains("<redacted>"));
     }
 }

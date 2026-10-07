@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::error::{map_db_error, AppError};
+use crate::error::{is_unique_or_serialization, map_db_error, unique_constraint, AppError};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct InstitutionRow {
@@ -71,6 +71,19 @@ pub async fn find_institution_by_name(
     .map_err(map_db_error)
 }
 
+pub async fn find_institution_by_domain(
+    tx: &mut Transaction<'_, Postgres>,
+    domain: &str,
+) -> Result<Option<InstitutionRow>, AppError> {
+    sqlx::query_as::<_, InstitutionRow>(
+        "SELECT id, name, slug, domain FROM institutions WHERE lower(domain) = lower($1)",
+    )
+    .bind(domain)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(map_db_error)
+}
+
 pub async fn insert_institution(
     tx: &mut Transaction<'_, Postgres>,
     id: Uuid,
@@ -78,29 +91,77 @@ pub async fn insert_institution(
     slug: &str,
     domain: Option<&str>,
 ) -> Result<InstitutionRow, AppError> {
-    let inserted = sqlx::query_as::<_, InstitutionRow>(
-        "INSERT INTO institutions (id, name, slug, domain)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, name, slug, domain",
-    )
-    .bind(id)
-    .bind(name)
-    .bind(slug)
-    .bind(domain)
-    .fetch_one(&mut **tx)
-    .await;
+    for attempt in 0..2 {
+        sqlx::query("SAVEPOINT institution_insert")
+            .execute(&mut **tx)
+            .await
+            .map_err(map_db_error)?;
 
-    match inserted {
-        Ok(row) => Ok(row),
-        Err(sqlx::Error::Database(db))
-            if db.constraint() == Some("institutions_name_lower_key")
-                || db.constraint() == Some("institutions_domain_lower_key") =>
-        {
-            find_institution_by_name(tx, name)
-                .await?
-                .ok_or(AppError::Internal)
+        let inserted = sqlx::query_as::<_, InstitutionRow>(
+            "INSERT INTO institutions (id, name, slug, domain)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, name, slug, domain",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(slug)
+        .bind(domain)
+        .fetch_one(&mut **tx)
+        .await;
+
+        match inserted {
+            Ok(row) => {
+                sqlx::query("RELEASE SAVEPOINT institution_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                return Ok(row);
+            }
+            Err(error) => {
+                sqlx::query("ROLLBACK TO SAVEPOINT institution_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                sqlx::query("RELEASE SAVEPOINT institution_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                match recover_institution_insert(tx, name, domain, error).await {
+                    Ok(Some(row)) => return Ok(row),
+                    Ok(None) if attempt == 0 => continue,
+                    Ok(None) => {
+                        return Err(AppError::validation("institution already exists"));
+                    }
+                    Err(other) => return Err(other),
+                }
+            }
         }
-        Err(error) => Err(map_db_error(error)),
+    }
+    Err(AppError::validation("institution already exists"))
+}
+
+async fn recover_institution_insert(
+    tx: &mut Transaction<'_, Postgres>,
+    name: &str,
+    domain: Option<&str>,
+    error: sqlx::Error,
+) -> Result<Option<InstitutionRow>, AppError> {
+    match unique_constraint(&error) {
+        Some("institutions_name_lower_key") => find_institution_by_name(tx, name).await,
+        Some("institutions_domain_lower_key") => match domain {
+            Some(domain) => find_institution_by_domain(tx, domain).await,
+            None => Ok(None),
+        },
+        _ if is_unique_or_serialization(&error) => {
+            if let Some(row) = find_institution_by_name(tx, name).await? {
+                return Ok(Some(row));
+            }
+            if let Some(domain) = domain {
+                return find_institution_by_domain(tx, domain).await;
+            }
+            Ok(None)
+        }
+        _ => Err(map_db_error(error)),
     }
 }
 
@@ -135,7 +196,10 @@ pub async fn insert_user(
     Ok(())
 }
 
-pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<UserRow>, AppError> {
+pub async fn find_user_by_email(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    email: &str,
+) -> Result<Option<UserRow>, AppError> {
     sqlx::query_as::<_, UserRow>(
         "SELECT id, name, email, password_hash, password_algorithm, institution_id,
                 major, year, learning_style, performance_level, profile_picture_key,
@@ -143,7 +207,7 @@ pub async fn find_user_by_email(pool: &PgPool, email: &str) -> Result<Option<Use
          FROM users WHERE email = $1",
     )
     .bind(email)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map_err(map_db_error)
 }
@@ -165,7 +229,7 @@ pub async fn get_user_by_id(
 }
 
 pub async fn update_password(
-    pool: &PgPool,
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
     user_id: Uuid,
     password_hash: &str,
     algorithm: &str,
@@ -178,7 +242,7 @@ pub async fn update_password(
     .bind(user_id)
     .bind(password_hash)
     .bind(algorithm)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(map_db_error)?;
     Ok(())

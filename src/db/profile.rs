@@ -2,7 +2,7 @@ use chrono::NaiveTime;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::error::{map_db_error, AppError};
+use crate::error::{is_unique_or_serialization, map_db_error, unique_constraint, AppError};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CourseRow {
@@ -87,12 +87,12 @@ pub async fn replace_availability(
     Ok(())
 }
 
-pub async fn find_or_create_course(
+async fn select_course_by_name(
     tx: &mut Transaction<'_, Postgres>,
     institution_id: Uuid,
     name: &str,
-) -> Result<Uuid, AppError> {
-    if let Some(row) = sqlx::query_as::<_, CourseRow>(
+) -> Result<Option<CourseRow>, AppError> {
+    sqlx::query_as::<_, CourseRow>(
         "SELECT id, name, course_code FROM courses
          WHERE institution_id = $1 AND lower(name) = lower($2)
          LIMIT 1",
@@ -101,23 +101,68 @@ pub async fn find_or_create_course(
     .bind(name)
     .fetch_optional(&mut **tx)
     .await
-    .map_err(map_db_error)?
-    {
-        return Ok(row.id);
-    }
+    .map_err(map_db_error)
+}
 
-    let id = Uuid::now_v7();
-    sqlx::query(
-        "INSERT INTO courses (id, institution_id, name, course_code)
-         VALUES ($1, $2, $3, NULL)",
-    )
-    .bind(id)
-    .bind(institution_id)
-    .bind(name)
-    .execute(&mut **tx)
-    .await
-    .map_err(map_db_error)?;
-    Ok(id)
+pub async fn find_or_create_course(
+    tx: &mut Transaction<'_, Postgres>,
+    institution_id: Uuid,
+    name: &str,
+) -> Result<Uuid, AppError> {
+    for _ in 0..2 {
+        if let Some(row) = select_course_by_name(tx, institution_id, name).await? {
+            return Ok(row.id);
+        }
+
+        sqlx::query("SAVEPOINT course_insert")
+            .execute(&mut **tx)
+            .await
+            .map_err(map_db_error)?;
+        let id = Uuid::now_v7();
+        let inserted = sqlx::query(
+            "INSERT INTO courses (id, institution_id, name, course_code)
+             VALUES ($1, $2, $3, NULL)",
+        )
+        .bind(id)
+        .bind(institution_id)
+        .bind(name)
+        .execute(&mut **tx)
+        .await;
+
+        match inserted {
+            Ok(_) => {
+                sqlx::query("RELEASE SAVEPOINT course_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                return Ok(id);
+            }
+            Err(error)
+                if unique_constraint(&error) == Some("courses_institution_name_lower_key")
+                    || is_unique_or_serialization(&error) =>
+            {
+                sqlx::query("ROLLBACK TO SAVEPOINT course_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                sqlx::query("RELEASE SAVEPOINT course_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                continue;
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK TO SAVEPOINT course_insert")
+                    .execute(&mut **tx)
+                    .await;
+                return Err(map_db_error(error));
+            }
+        }
+    }
+    select_course_by_name(tx, institution_id, name)
+        .await?
+        .map(|row| row.id)
+        .ok_or_else(|| AppError::validation("course already exists"))
 }
 
 pub async fn replace_user_courses(
@@ -147,22 +192,59 @@ async fn find_or_create_named(
     insert: &str,
     name: &str,
 ) -> Result<Uuid, AppError> {
-    if let Some(row) = sqlx::query_as::<_, NamedRow>(select)
+    for _ in 0..2 {
+        if let Some(row) = sqlx::query_as::<_, NamedRow>(select)
+            .bind(name)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(map_db_error)?
+        {
+            return Ok(row.id);
+        }
+        sqlx::query("SAVEPOINT named_insert")
+            .execute(&mut **tx)
+            .await
+            .map_err(map_db_error)?;
+        let id = Uuid::now_v7();
+        let inserted = sqlx::query(insert)
+            .bind(id)
+            .bind(name)
+            .execute(&mut **tx)
+            .await;
+        match inserted {
+            Ok(_) => {
+                sqlx::query("RELEASE SAVEPOINT named_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                return Ok(id);
+            }
+            Err(error) if is_unique_or_serialization(&error) => {
+                sqlx::query("ROLLBACK TO SAVEPOINT named_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                sqlx::query("RELEASE SAVEPOINT named_insert")
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(map_db_error)?;
+                continue;
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK TO SAVEPOINT named_insert")
+                    .execute(&mut **tx)
+                    .await;
+                return Err(map_db_error(error));
+            }
+        }
+    }
+    sqlx::query_as::<_, NamedRow>(select)
         .bind(name)
         .fetch_optional(&mut **tx)
         .await
         .map_err(map_db_error)?
-    {
-        return Ok(row.id);
-    }
-    let id = Uuid::now_v7();
-    sqlx::query(insert)
-        .bind(id)
-        .bind(name)
-        .execute(&mut **tx)
-        .await
-        .map_err(map_db_error)?;
-    Ok(id)
+        .map(|row| row.id)
+        .ok_or_else(|| AppError::validation("catalog value already exists"))
 }
 
 pub async fn replace_environments(

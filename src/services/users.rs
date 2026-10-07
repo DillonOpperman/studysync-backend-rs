@@ -77,27 +77,37 @@ pub async fn write_profile_graph(
 }
 
 pub async fn assemble_profile(pool: &PgPool, user_id: Uuid) -> Result<UserProfileDto, AppError> {
-    let user = identity::get_user_by_id(pool, user_id)
+    let mut tx = pool.begin().await.map_err(crate::error::map_db_error)?;
+    let profile = assemble_profile_in_tx(&mut tx, user_id).await?;
+    tx.commit().await.map_err(crate::error::map_db_error)?;
+    Ok(profile)
+}
+
+pub async fn assemble_profile_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: Uuid,
+) -> Result<UserProfileDto, AppError> {
+    let user = identity::get_user_by_id(&mut **tx, user_id)
         .await?
         .filter(|row| row.deleted_at.is_none())
         .ok_or(AppError::UserNotFound)?;
-    let institution = identity::get_institution(pool, user.institution_id)
+    let institution = identity::get_institution(&mut **tx, user.institution_id)
         .await?
         .ok_or(AppError::Internal)?;
-    let prefs = profile::load_preferences(pool, user_id).await?;
-    to_dto(pool, user, institution, prefs).await
+    let prefs = profile::load_preferences(&mut **tx, user_id).await?;
+    to_dto(tx, user, institution, prefs).await
 }
 
 async fn to_dto(
-    pool: &PgPool,
+    tx: &mut Transaction<'_, Postgres>,
     user: UserRow,
     institution: InstitutionRow,
     prefs: PreferenceRow,
 ) -> Result<UserProfileDto, AppError> {
-    let courses = profile::load_courses(pool, user.id).await?;
-    let availability = profile::load_availability(pool, user.id).await?;
+    let courses = profile::load_courses(&mut **tx, user.id).await?;
+    let availability = profile::load_availability(&mut **tx, user.id).await?;
     let environments = profile::load_names(
-        pool,
+        &mut **tx,
         "SELECT e.id, e.name FROM study_environments e
          JOIN user_study_environments ue ON ue.environment_id = e.id
          WHERE ue.user_id = $1 ORDER BY e.name",
@@ -105,7 +115,7 @@ async fn to_dto(
     )
     .await?;
     let methods = profile::load_names(
-        pool,
+        &mut **tx,
         "SELECT m.id, m.name FROM study_methods m
          JOIN user_study_methods um ON um.method_id = m.id
          WHERE um.user_id = $1 ORDER BY m.name",
@@ -113,7 +123,7 @@ async fn to_dto(
     )
     .await?;
     let goals = profile::load_names(
-        pool,
+        &mut **tx,
         "SELECT g.id, g.name FROM study_goals g
          JOIN user_study_goals ug ON ug.goal_id = g.id
          WHERE ug.user_id = $1 ORDER BY g.name",
@@ -236,7 +246,7 @@ pub async fn patch_me(
         )
         .await?;
         if !prefs_in.study_goals.is_empty() {
-            let goals = normalize_patch_names(&prefs_in.study_goals)?;
+            let goals = domain::normalize_names(&prefs_in.study_goals)?;
             profile::replace_goals(&mut tx, user.id, &goals).await?;
         }
     }
@@ -245,7 +255,7 @@ pub async fn patch_me(
         profile::replace_availability(&mut tx, user.id, &parsed).await?;
     }
     if let Some(subjects) = request.subjects.as_ref() {
-        let names = normalize_patch_names(subjects)?;
+        let names = domain::normalize_names(subjects)?;
         let mut course_ids = Vec::new();
         for name in &names {
             course_ids
@@ -254,29 +264,13 @@ pub async fn patch_me(
         profile::replace_user_courses(&mut tx, user.id, &course_ids).await?;
     }
     if let Some(values) = request.study_environments.as_ref() {
-        profile::replace_environments(&mut tx, user.id, &normalize_patch_names(values)?).await?;
+        profile::replace_environments(&mut tx, user.id, &domain::normalize_names(values)?).await?;
     }
     if let Some(values) = request.study_methods.as_ref() {
-        profile::replace_methods(&mut tx, user.id, &normalize_patch_names(values)?).await?;
+        profile::replace_methods(&mut tx, user.id, &domain::normalize_names(values)?).await?;
     }
 
+    let profile = assemble_profile_in_tx(&mut tx, user_id).await?;
     tx.commit().await.map_err(crate::error::map_db_error)?;
-    assemble_profile(pool, user_id).await
-}
-
-fn normalize_patch_names(values: &[String]) -> Result<Vec<String>, AppError> {
-    let mut names = Vec::new();
-    for value in values {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err(AppError::validation("list values must not be blank"));
-        }
-        if !names
-            .iter()
-            .any(|existing: &String| existing.eq_ignore_ascii_case(trimmed))
-        {
-            names.push(trimmed.to_string());
-        }
-    }
-    Ok(names)
+    Ok(profile)
 }

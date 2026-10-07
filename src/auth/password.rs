@@ -11,6 +11,13 @@ pub const ALG_BCRYPT: &str = "bcrypt";
 const MIN_PASSWORD_LEN: usize = 8;
 const MAX_PASSWORD_LEN: usize = 128;
 
+/// Precomputed Argon2id PHC string (password `studysync-timing-dummy`).
+/// Login uses this only when no matching user row exists so Argon2 still runs
+/// and response timing is closer to a real password check. It is not a real
+/// account hash and must never be stored on `users`.
+const DUMMY_ARGON2ID_HASH: &str =
+    "$argon2id$v=19$m=19456,t=2,p=1$oK9/g+98M+5RPohVv8nTAA$HgWn5tr6qx9f1lIXTZRBOco9JShQKKQN5W2lZmS55ig";
+
 pub fn validate_plaintext(password: &str) -> Result<(), AppError> {
     if password.len() < MIN_PASSWORD_LEN {
         return Err(AppError::validation(
@@ -59,6 +66,12 @@ pub fn verify_password(password: &str, hash: &str, algorithm: &str) -> Result<bo
     }
 }
 
+/// Run Argon2id against a dummy hash so unknown emails spend similar time as
+/// known emails before `invalid_credentials` is returned.
+pub fn equalize_unknown_user_timing(password: &str) {
+    let _ = verify_password(password, DUMMY_ARGON2ID_HASH, ALG_ARGON2ID);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,5 +94,11 @@ mod tests {
         let hash = bcrypt::hash("legacy-pass", 4).expect("bcrypt");
         assert!(verify_password("legacy-pass", &hash, ALG_BCRYPT).unwrap());
         assert!(!verify_password("nope", &hash, ALG_BCRYPT).unwrap());
+    }
+
+    #[test]
+    fn dummy_hash_is_valid_argon2id() {
+        assert!(DUMMY_ARGON2ID_HASH.starts_with("$argon2id$"));
+        assert!(!verify_password("any-password", DUMMY_ARGON2ID_HASH, ALG_ARGON2ID).unwrap());
     }
 }

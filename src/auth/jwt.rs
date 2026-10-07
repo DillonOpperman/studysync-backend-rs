@@ -100,7 +100,7 @@ mod tests {
         assert_eq!(claims.sub, user_id.to_string());
         assert_eq!(claims.typ, TOKEN_TYPE_ACCESS);
         assert!(Uuid::parse_str(&claims.jti).is_ok());
-        assert!(claims.exp > claims.iat);
+        assert_eq!(claims.exp - claims.iat, ACCESS_TTL_MINUTES * 60);
     }
 
     #[test]

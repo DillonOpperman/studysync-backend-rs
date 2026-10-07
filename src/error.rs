@@ -93,6 +93,22 @@ impl IntoResponse for AppError {
     }
 }
 
+/// Unique-index (`23505`) or serialization (`40001`) failure that callers may
+/// recover from by re-selecting the existing row (or retrying once).
+pub fn is_unique_or_serialization(error: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(db) = error else {
+        return false;
+    };
+    matches!(db.code().as_deref(), Some("40001") | Some("23505"))
+}
+
+pub fn unique_constraint(error: &sqlx::Error) -> Option<&str> {
+    match error {
+        sqlx::Error::Database(db) => db.constraint(),
+        _ => None,
+    }
+}
+
 pub fn map_db_error(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(db) = &error {
         if db.constraint() == Some("users_email_key") {

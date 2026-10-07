@@ -3,10 +3,12 @@ use axum::http::request::Parts;
 use uuid::Uuid;
 
 use crate::auth::jwt::decode_access_token;
+use crate::db::identity;
 use crate::error::AppError;
 use crate::AppState;
 
-/// Authenticated user id extracted from a Bearer access token.
+/// Authenticated user whose JWT `sub` exists and is not soft-deleted.
+/// Future protected routes should extract this type rather than trusting `sub` alone.
 #[derive(Debug, Clone, Copy)]
 pub struct AuthUser {
     pub id: Uuid,
@@ -40,6 +42,10 @@ impl FromRequestParts<AppState> for AuthUser {
         let token = bearer_token(parts)?;
         let claims = decode_access_token(token, &state.config.jwt_secret)?;
         let id = Uuid::parse_str(&claims.sub).map_err(|_| AppError::Unauthorized)?;
-        Ok(Self { id })
+        let user = identity::get_user_by_id(&state.db, id)
+            .await?
+            .filter(|row| row.deleted_at.is_none())
+            .ok_or(AppError::Unauthorized)?;
+        Ok(Self { id: user.id })
     }
 }
