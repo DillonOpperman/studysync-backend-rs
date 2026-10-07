@@ -24,6 +24,30 @@ pub enum AppError {
     DuplicateEmail,
     #[error("user not found")]
     UserNotFound,
+    #[error("group not found")]
+    GroupNotFound,
+    #[error("not a group member")]
+    NotGroupMember,
+    #[error("not the group leader")]
+    NotGroupLeader,
+    #[error("already a group member")]
+    AlreadyMember,
+    #[error("a join request is already pending")]
+    JoinRequestPending,
+    #[error("join request has already been decided")]
+    JoinRequestDecided,
+    #[error("join request not found")]
+    JoinRequestNotFound,
+    #[error("group is archived")]
+    GroupArchived,
+    #[error("group is full")]
+    GroupFull,
+    #[error("leader cannot leave while other members remain; transfer leadership first")]
+    CannotLeaveAsLeader,
+    #[error("cannot remove the group leader")]
+    CannotRemoveLeader,
+    #[error("notification not found")]
+    NotificationNotFound,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +79,18 @@ impl AppError {
             Self::InvalidRefresh => "invalid_refresh_token",
             Self::DuplicateEmail => "duplicate_email",
             Self::UserNotFound => "user_not_found",
+            Self::GroupNotFound => "group_not_found",
+            Self::NotGroupMember => "not_group_member",
+            Self::NotGroupLeader => "not_group_leader",
+            Self::AlreadyMember => "already_member",
+            Self::JoinRequestPending => "join_request_pending",
+            Self::JoinRequestDecided => "join_request_already_decided",
+            Self::JoinRequestNotFound => "join_request_not_found",
+            Self::GroupArchived => "group_archived",
+            Self::GroupFull => "group_full",
+            Self::CannotLeaveAsLeader => "cannot_leave_as_leader",
+            Self::CannotRemoveLeader => "cannot_remove_leader",
+            Self::NotificationNotFound => "notification_not_found",
         }
     }
 
@@ -67,8 +103,19 @@ impl AppError {
             | Self::Unauthorized
             | Self::ExpiredToken
             | Self::InvalidRefresh => StatusCode::UNAUTHORIZED,
-            Self::DuplicateEmail => StatusCode::CONFLICT,
-            Self::UserNotFound => StatusCode::NOT_FOUND,
+            Self::DuplicateEmail
+            | Self::AlreadyMember
+            | Self::JoinRequestPending
+            | Self::JoinRequestDecided
+            | Self::GroupArchived
+            | Self::GroupFull
+            | Self::CannotLeaveAsLeader
+            | Self::CannotRemoveLeader => StatusCode::CONFLICT,
+            Self::NotGroupMember | Self::NotGroupLeader => StatusCode::FORBIDDEN,
+            Self::UserNotFound
+            | Self::GroupNotFound
+            | Self::JoinRequestNotFound
+            | Self::NotificationNotFound => StatusCode::NOT_FOUND,
         }
     }
 
@@ -113,6 +160,12 @@ pub fn map_db_error(error: sqlx::Error) -> AppError {
     if let sqlx::Error::Database(db) = &error {
         if db.constraint() == Some("users_email_key") {
             return AppError::DuplicateEmail;
+        }
+        if db.constraint() == Some("group_join_requests_one_pending") {
+            return AppError::JoinRequestPending;
+        }
+        if db.constraint() == Some("group_members_user_group_key") {
+            return AppError::AlreadyMember;
         }
         tracing::error!(
             constraint = db.constraint(),

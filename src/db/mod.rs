@@ -3,7 +3,9 @@ use sqlx::PgPool;
 
 use crate::config::Config;
 
+pub mod groups;
 pub mod identity;
+pub mod notifications;
 pub mod profile;
 
 /// Create a PostgreSQL pool. Failures must not include credentials in user-facing output.
