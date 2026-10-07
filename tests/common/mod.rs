@@ -73,6 +73,27 @@ pub fn register_body(email: &str, password: &str) -> serde_json::Value {
     })
 }
 
+#[allow(dead_code)]
+pub async fn register_user(state: AppState) -> (String, Uuid) {
+    let email = unique_email();
+    let (status, json) = send(
+        state,
+        axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/auth/register")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                register_body(&email, "password12").to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, axum::http::StatusCode::CREATED, "{json}");
+    let access = json["accessToken"].as_str().unwrap().to_string();
+    let id = Uuid::parse_str(json["user"]["id"].as_str().unwrap()).unwrap();
+    (access, id)
+}
+
 pub async fn send(
     state: AppState,
     request: axum::http::Request<axum::body::Body>,
