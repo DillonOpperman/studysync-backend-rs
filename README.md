@@ -158,6 +158,14 @@ Same-day windows have `end_time > start_time`. Overnight windows (for example 23
 
 `profilePictureKey` is a future object-storage key. It is not authorization. The media phase must own uploads, bind keys to the user, and issue signed URLs. Clients must not present arbitrary keys as proof of access.
 
+## Groups (Phase 3)
+
+`POST /api/v1/groups` creates a group; the caller becomes the sole active leader. Recurring slots use the same overnight rules as personal availability (`end < start` wraps midnight).
+
+Leave policy: members may leave (membership is archived). A leader with other active members cannot leave until leadership is transferred (not implemented yet). A leader who is the only remaining member may leave; the group is **archived**, not deleted.
+
+Capacity: join approval locks the `study_groups` row (`FOR UPDATE`), then counts active members before inserting. Concurrent approvals cannot exceed `maxMembers`.
+
 ## Logout
 
 `POST /api/v1/auth/logout` revokes **that refresh session / device** only. Repeating logout with the same token is a no-op success. It is not a global sign-out.

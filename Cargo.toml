@@ -25,6 +25,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "postgres",
     "uuid",
     "chrono",
+    "json",
     "migrate",
     "macros",
 ] }
@@ -43,6 +44,7 @@ sqlx = { version = "0.8", default-features = false, features = [
     "postgres",
     "uuid",
     "chrono",
+    "json",
     "macros",
 ] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
