@@ -10,6 +10,20 @@ pub enum AppError {
     Internal,
     #[error("service is not ready")]
     NotReady,
+    #[error("{0}")]
+    Validation(String),
+    #[error("invalid credentials")]
+    InvalidCredentials,
+    #[error("authentication required")]
+    Unauthorized,
+    #[error("access token has expired")]
+    ExpiredToken,
+    #[error("invalid or expired refresh token")]
+    InvalidRefresh,
+    #[error("email is already registered")]
+    DuplicateEmail,
+    #[error("user not found")]
+    UserNotFound,
 }
 
 #[derive(Debug, Serialize)]
@@ -26,10 +40,21 @@ pub struct ErrorDetail {
 }
 
 impl AppError {
+    pub fn validation(message: impl Into<String>) -> Self {
+        Self::Validation(message.into())
+    }
+
     pub fn code(&self) -> &'static str {
         match self {
             Self::Internal => "internal_error",
             Self::NotReady => "not_ready",
+            Self::Validation(_) => "validation_error",
+            Self::InvalidCredentials => "invalid_credentials",
+            Self::Unauthorized => "unauthorized",
+            Self::ExpiredToken => "token_expired",
+            Self::InvalidRefresh => "invalid_refresh_token",
+            Self::DuplicateEmail => "duplicate_email",
+            Self::UserNotFound => "user_not_found",
         }
     }
 
@@ -37,6 +62,13 @@ impl AppError {
         match self {
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
             Self::NotReady => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Validation(_) => StatusCode::BAD_REQUEST,
+            Self::InvalidCredentials
+            | Self::Unauthorized
+            | Self::ExpiredToken
+            | Self::InvalidRefresh => StatusCode::UNAUTHORIZED,
+            Self::DuplicateEmail => StatusCode::CONFLICT,
+            Self::UserNotFound => StatusCode::NOT_FOUND,
         }
     }
 
@@ -52,9 +84,29 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        tracing::error!(code = self.code(), "request failed");
+        match self {
+            Self::Internal => tracing::error!(code = self.code(), "request failed"),
+            Self::Validation(_) => tracing::debug!(code = self.code(), "validation failed"),
+            _ => tracing::warn!(code = self.code(), "request rejected"),
+        }
         (self.status(), Json(self.body())).into_response()
     }
+}
+
+pub fn map_db_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(db) = &error {
+        if db.constraint() == Some("users_email_key") {
+            return AppError::DuplicateEmail;
+        }
+        tracing::error!(
+            constraint = db.constraint(),
+            code = db.code().as_deref(),
+            "database operation failed"
+        );
+        return AppError::Internal;
+    }
+    tracing::error!(kind = "sqlx", "database operation failed");
+    AppError::Internal
 }
 
 #[cfg(test)]
@@ -79,5 +131,20 @@ mod tests {
     fn serializes_not_ready_error() {
         let json = serde_json::to_value(AppError::NotReady.body()).expect("json");
         assert_eq!(json["error"]["code"], "not_ready");
+    }
+
+    #[test]
+    fn serializes_validation_and_auth_errors() {
+        let validation =
+            serde_json::to_value(AppError::validation("year is invalid").body()).unwrap();
+        assert_eq!(validation["error"]["code"], "validation_error");
+        assert_eq!(validation["error"]["message"], "year is invalid");
+
+        assert_eq!(AppError::DuplicateEmail.status(), StatusCode::CONFLICT);
+        assert_eq!(AppError::ExpiredToken.code(), "token_expired");
+        assert_eq!(
+            AppError::InvalidCredentials.status(),
+            StatusCode::UNAUTHORIZED
+        );
     }
 }
