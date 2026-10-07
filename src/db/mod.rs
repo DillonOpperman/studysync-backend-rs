@@ -3,6 +3,9 @@ use sqlx::PgPool;
 
 use crate::config::Config;
 
+pub mod identity;
+pub mod profile;
+
 /// Create a PostgreSQL pool. Failures must not include credentials in user-facing output.
 pub async fn create_pool(config: &Config) -> Result<PgPool, sqlx::Error> {
     let pool_cfg = &config.database_pool;
