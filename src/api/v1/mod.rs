@@ -4,8 +4,10 @@ use axum::Router;
 use crate::AppState;
 
 mod auth;
+mod friends;
 mod groups;
 mod health;
+mod messages;
 mod notifications;
 mod users;
 
@@ -47,4 +49,24 @@ pub fn router() -> Router<AppState> {
             post(notifications::mark_all_read),
         )
         .route("/notifications/{id}/read", post(notifications::mark_read))
+        .route(
+            "/friends/requests",
+            post(friends::send_request).get(friends::list_requests),
+        )
+        .route("/friends/requests/{id}/accept", post(friends::accept))
+        .route("/friends/requests/{id}/reject", post(friends::reject))
+        .route("/friends", get(friends::list_friends))
+        .route("/blocks", post(friends::block))
+        .route("/blocks/{user_id}", delete(friends::unblock))
+        .route("/direct-messages", post(messages::send))
+        .route("/direct-messages/{user_id}", get(messages::list_thread))
+        .route("/message-requests", get(messages::list_message_requests))
+        .route(
+            "/message-requests/{id}/accept",
+            post(messages::accept_message_request),
+        )
+        .route(
+            "/message-requests/{id}/reject",
+            post(messages::reject_message_request),
+        )
 }

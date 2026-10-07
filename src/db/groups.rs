@@ -195,6 +195,50 @@ pub async fn list_slots(
     .map_err(map_db_error)
 }
 
+pub async fn share_active_group(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    user_a: Uuid,
+    user_b: Uuid,
+) -> Result<bool, AppError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM group_members a
+            JOIN group_members b ON b.group_id = a.group_id
+            JOIN study_groups g ON g.id = a.group_id
+            WHERE a.user_id = $1 AND b.user_id = $2
+              AND a.status = 'active' AND b.status = 'active'
+              AND g.status = 'active'
+         )",
+    )
+    .bind(user_a)
+    .bind(user_b)
+    .fetch_one(executor)
+    .await
+    .map_err(map_db_error)
+}
+
+pub async fn user_is_active_group_leader(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    user_id: Uuid,
+) -> Result<bool, AppError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1
+            FROM group_members m
+            JOIN study_groups g ON g.id = m.group_id
+            WHERE m.user_id = $1
+              AND m.role = 'leader'
+              AND m.status = 'active'
+              AND g.status = 'active'
+         )",
+    )
+    .bind(user_id)
+    .fetch_one(executor)
+    .await
+    .map_err(map_db_error)
+}
+
 pub async fn find_active_membership(
     executor: impl sqlx::Executor<'_, Database = Postgres>,
     group_id: Uuid,
