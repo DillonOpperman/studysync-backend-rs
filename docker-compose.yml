@@ -1,0 +1,63 @@
+# Infrastructure only. The Rust API runs on the host during Phase 1
+# (`cargo run`). Optional profile `api` is reserved for a later phase.
+
+name: studysync-backend
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: studysync-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-studysync}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studysync_dev_only_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-studysync}
+    ports:
+      - "5432:5432"
+    volumes:
+      - studysync_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: studysync-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Development-only S3-compatible store. Production uses managed S3.
+  # Official MinIO images (docker.io/minio/minio and quay.io/minio/minio)
+  # were not pullable in this environment (401 / access denied). Adobe S3Mock
+  # provides a local S3 API and creates the development bucket on start.
+  # Replace this service with MinIO when that image is available.
+  minio:
+    image: adobe/s3mock:latest
+    container_name: studysync-minio
+    environment:
+      initialBuckets: ${MINIO_BUCKET:-studysync-media}
+      rootAccessKey: ${MINIO_ROOT_USER:-studysync}
+      rootSecretKey: ${MINIO_ROOT_PASSWORD:-studysync_dev_minio_change_me}
+    ports:
+      - "9000:9090"
+    volumes:
+      - studysync_minio_data:/tmp/s3mock
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/127.0.0.1/9090'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  studysync_postgres_data:
+  studysync_minio_data:
