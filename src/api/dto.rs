@@ -126,3 +126,99 @@ pub struct GroupPreferencesDto {
     pub preferred_group_size_max: i16,
     pub session_duration_minutes: i16,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateGroupRequest {
+    pub title: String,
+    pub subject: String,
+    pub course_id: Option<Uuid>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub location: String,
+    pub max_members: i16,
+    #[serde(default)]
+    pub recurring_slots: Vec<AvailabilityInput>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserSummaryDto {
+    pub id: Uuid,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_picture_key: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecurringSlotDto {
+    pub id: Uuid,
+    pub day_of_week: i16,
+    pub start_time: NaiveTime,
+    pub end_time: NaiveTime,
+    pub timezone: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupDto {
+    pub id: Uuid,
+    pub title: String,
+    pub subject: String,
+    pub course_id: Option<Uuid>,
+    pub description: String,
+    pub location: String,
+    pub max_members: i16,
+    pub member_count: i64,
+    pub leader: UserSummaryDto,
+    pub status: String,
+    pub membership_status: String,
+    pub pending_join_request: bool,
+    pub is_leader: bool,
+    pub recurring_slots: Vec<RecurringSlotDto>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupMemberDto {
+    pub user_id: Uuid,
+    pub name: String,
+    pub profile_picture_key: Option<String>,
+    pub role: String,
+    pub joined_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinRequestDto {
+    pub id: Uuid,
+    pub group_id: Uuid,
+    pub status: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub decided_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub requester: UserSummaryDto,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationListQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotificationDto {
+    pub id: Uuid,
+    #[serde(rename = "type")]
+    pub ntype: String,
+    pub title: String,
+    pub body: String,
+    pub data: serde_json::Value,
+    pub read_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
