@@ -48,4 +48,6 @@ Fallback: MiniLM (`EMBEDDING_BACKEND=minilm`). Full-text search remains PostgreS
 
 Neural eval: `cargo test --release --test model_eval -- --ignored --nocapture --test-threads=1`. Missing weights panic; they do not fake-pass.
 
+Official Transformers parity (development only, Python is not a production dependency): `eval/nomic_hf_reference.py` writes `eval/nomic_hf_reference.json` from the pinned snapshot. `cargo test --release --test nomic_reference -- --ignored` compares Candle token ids, 768-d vectors, and pair cosines. On this machine the worst component difference was ~2.4e-7 (cosine 1.000000).
+
 See `eval/RESULTS.md` for the MiniLM / BGE-small / Nomic numbers and the explicit selection rationale.

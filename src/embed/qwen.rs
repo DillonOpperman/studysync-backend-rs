@@ -77,9 +77,10 @@ impl QwenEmbedder {
             fs::read(&cfg_path).map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
         let cfg: Qwen3Config = serde_json::from_slice(&cfg_bytes)
             .map_err(|error| EmbeddingError::Unavailable(format!("qwen config: {error}")))?;
-        if cfg.hidden_size != catalog::PRODUCTION_EMBEDDING_DIM {
+        let expected_dim = catalog::qwen3_embedding_06b().dimensions;
+        if cfg.hidden_size != expected_dim {
             return Err(EmbeddingError::DimensionMismatch {
-                expected: catalog::PRODUCTION_EMBEDDING_DIM,
+                expected: expected_dim,
                 actual: cfg.hidden_size,
             });
         }
@@ -179,9 +180,9 @@ impl QwenEmbedder {
             .embed_normalized(&input_ids, &attention_mask)
             .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
         for vector in &vectors {
-            if vector.len() != catalog::PRODUCTION_EMBEDDING_DIM {
+            if vector.len() != catalog::qwen3_embedding_06b().dimensions {
                 return Err(EmbeddingError::DimensionMismatch {
-                    expected: catalog::PRODUCTION_EMBEDDING_DIM,
+                    expected: catalog::qwen3_embedding_06b().dimensions,
                     actual: vector.len(),
                 });
             }

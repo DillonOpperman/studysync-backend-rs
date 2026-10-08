@@ -49,6 +49,7 @@ uuid = { version = "1", features = ["v7", "std", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+tokenizers = "0.23.2"
 http-body-util = "0.1"
 tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect"] }
 tower = { version = "0.5", features = ["util"] }

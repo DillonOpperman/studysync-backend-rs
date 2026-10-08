@@ -57,3 +57,18 @@ It improves nDCG@5 from MiniLM 0.893 to **0.928** (+3.9% relative), pairwise fro
 BGE-small is not selected: better nDCG than MiniLM but worse recall@5, weaker cosine separation, and it does not beat Nomic on ranking.
 
 The 24/20/108 set is small; treat gaps as StudySync-specific signal, not a generic MTEB ranking.
+
+## Official Transformers verification (Nomic)
+
+Pinned revision `e9b6763023c676ca8431644204f50c2b100d9aab`. Hugging Face `AutoModel` + `BertTokenizerFast` vs Candle NomicBert on seven fixed strings (short queries, study-group copy, a longer document, related calculus vs unrelated organic chemistry).
+
+Contract checked: BERT `[CLS]`/`[SEP]`/`[PAD]` (101/102/0), `search_query: ` / `search_document: ` prefixes, attention-mask mean pooling, unparameterized layer-norm (`eps=1e-5`), L2, 768-d.
+
+| Check | Result |
+| --- | --- |
+| Token ids (unpadded) | Exact match |
+| Vector cosine vs HF | 1.000000 |
+| Max abs component | 2.35e-7 |
+| Pairwise cosine delta | ≤ 2.4e-7 |
+
+Differences are float32 noise. Query/document embeddings share that revision and pooling. Python is verification-only.

@@ -120,6 +120,81 @@ async fn embeddings_of_different_dimensions_do_not_share_a_column() {
 }
 
 #[tokio::test]
+async fn nomic_search_ignores_other_model_ids_and_widths() {
+    let state = test_state().await;
+    let (access, leader) = common::register_user(state.clone()).await;
+    let _ = access;
+    let mut tx = state.db.begin().await.expect("tx");
+    let nomic_group = Uuid::now_v7();
+    let minilm_group = Uuid::now_v7();
+    let now = chrono::Utc::now();
+    for (id, title) in [
+        (nomic_group, "Nomic Networks"),
+        (minilm_group, "MiniLM Chemistry"),
+    ] {
+        sqlx::query(
+            "INSERT INTO study_groups (
+                id, title, subject, course_id, description, location,
+                max_members, leader_id, status, created_at, updated_at
+             ) VALUES ($1,$2,$3,NULL,$4,$5,6,$6,'active',$7,$7)",
+        )
+        .bind(id)
+        .bind(title)
+        .bind(title)
+        .bind("test")
+        .bind("Library")
+        .bind(leader)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .expect("group");
+    }
+    let mut nomic_vec = vec![0.0; 768];
+    nomic_vec[0] = 1.0;
+    let mut minilm_vec = vec![0.0; 384];
+    minilm_vec[0] = 1.0;
+    embeddings::upsert(
+        &mut tx,
+        "group",
+        nomic_group,
+        catalog::PRODUCTION_MODEL_ID,
+        "nomic-hash",
+        &nomic_vec,
+    )
+    .await
+    .expect("nomic vec");
+    embeddings::upsert(
+        &mut tx,
+        "group",
+        minilm_group,
+        "all-minilm-l6-v2:legacy",
+        "minilm-hash",
+        &minilm_vec,
+    )
+    .await
+    .expect("minilm vec");
+    let nomic_hits = embeddings::search_groups(
+        &mut *tx,
+        catalog::PRODUCTION_MODEL_ID,
+        &nomic_vec,
+        0.1,
+        10,
+        0,
+    )
+    .await
+    .expect("nomic search");
+    let minilm_hits =
+        embeddings::search_groups(&mut *tx, "all-minilm-l6-v2:legacy", &minilm_vec, 0.1, 10, 0)
+            .await
+            .expect("minilm search");
+    tx.commit().await.expect("commit");
+    assert!(nomic_hits.iter().any(|hit| hit.entity_id == nomic_group));
+    assert!(nomic_hits.iter().all(|hit| hit.entity_id != minilm_group));
+    assert!(minilm_hits.iter().any(|hit| hit.entity_id == minilm_group));
+    assert!(minilm_hits.iter().all(|hit| hit.entity_id != nomic_group));
+}
+
+#[tokio::test]
 async fn wrong_dimension_is_rejected() {
     let state = test_state().await;
     let mut tx = state.db.begin().await.expect("tx");

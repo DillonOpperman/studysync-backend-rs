@@ -48,3 +48,32 @@ pub fn verify_snapshot(config_or_weight: &Path, revision: &str) -> Result<(), Em
 pub fn weight_bytes(path: &Path) -> u64 {
     std::fs::metadata(path).map(|meta| meta.len()).unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::embed::catalog::NOMIC_EMBED_TEXT_V15_REVISION;
+
+    #[test]
+    fn refuses_unpinned_snapshot_directory() {
+        let path = PathBuf::from(
+            "cache/models--nomic-ai--nomic-embed-text-v1.5/snapshots/main/config.json",
+        );
+        let err = verify_snapshot(&path, NOMIC_EMBED_TEXT_V15_REVISION).unwrap_err();
+        match err {
+            EmbeddingError::Unavailable(message) => {
+                assert!(message.contains("unpinned"));
+                assert!(message.contains("main"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_pinned_nomic_revision_directory() {
+        let path = PathBuf::from(format!(
+            "cache/snapshots/{NOMIC_EMBED_TEXT_V15_REVISION}/model.safetensors"
+        ));
+        verify_snapshot(&path, NOMIC_EMBED_TEXT_V15_REVISION).expect("pinned");
+    }
+}
