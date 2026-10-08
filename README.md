@@ -4,7 +4,9 @@ This is the **new** production API. It is a separate Git repository from the leg
 
 Do not copy this project into the old Flask tree. Do not push it to `DillonOpperman/studysync-backend`.
 
-This repository currently implements Phases 1–6: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, persistent group chat with authenticated WebSockets, and private object-storage media. Matching, push, and DM WebSockets are later phases.
+This repository currently implements Phases 1–7: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, persistent group chat with authenticated WebSockets, private object-storage media, versioned pgvector embeddings, recommendations, and group search (`fullText` default, `semantic`). Push and DM WebSockets remain later phases.
+
+Production embedding model: `Qwen/Qwen3-Embedding-0.6B` at revision `c935f2d3fce3e2337b4a66ac3130faa6dada3218` (`qwen3-embedding-0.6b:v1`, 1024-d). See `THIRD_PARTY_NOTICES.md` and `docs/phase7-embedding-evaluation.md`.
 
 ## Prerequisites (Windows)
 

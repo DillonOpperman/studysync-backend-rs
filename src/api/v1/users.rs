@@ -21,9 +21,19 @@ pub async fn patch_me(
     Json(body): Json<PatchMeRequest>,
 ) -> Result<Json<UserProfileDto>, AppError> {
     let user_id = require_user(auth);
-    Ok(Json(
-        services::users::patch_me(&state.db, user_id, body).await?,
-    ))
+    let reembed = body.name.is_some() || body.major.is_some() || body.subjects.is_some();
+    let profile = services::users::patch_me(&state.db, user_id, body).await?;
+    if reembed {
+        if let Err(error) =
+            services::embeddings::upsert_user(&state.db, &state.embeddings, user_id).await
+        {
+            tracing::error!(
+                code = error.code(),
+                "user embedding persist failed after profile update"
+            );
+        }
+    }
+    Ok(Json(profile))
 }
 
 pub async fn list_institutions(

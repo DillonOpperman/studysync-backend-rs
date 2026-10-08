@@ -12,6 +12,14 @@ pub async fn register(
     Json(body): Json<RegisterRequest>,
 ) -> Result<(StatusCode, Json<AuthResponse>), AppError> {
     let response = services::auth::register(&state.db, &state.config, body).await?;
+    if let Err(error) =
+        services::embeddings::upsert_user(&state.db, &state.embeddings, response.user.id).await
+    {
+        tracing::error!(
+            code = error.code(),
+            "user embedding persist failed after register"
+        );
+    }
     Ok((StatusCode::CREATED, Json(response)))
 }
 

@@ -295,6 +295,39 @@ pub async fn list_my_groups(
     .map_err(map_db_error)
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+#[allow(dead_code)]
+pub struct ActiveGroupMatchRow {
+    pub id: Uuid,
+    pub title: String,
+    pub subject: String,
+    pub description: String,
+    pub max_members: i16,
+    pub leader_id: Uuid,
+    pub leader_institution_id: Uuid,
+    pub leader_name: String,
+    pub leader_major: String,
+    pub member_count: i64,
+}
+
+pub async fn list_active_groups_for_matching(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+) -> Result<Vec<ActiveGroupMatchRow>, AppError> {
+    sqlx::query_as::<_, ActiveGroupMatchRow>(
+        "SELECT g.id, g.title, g.subject, g.description, g.max_members, g.leader_id,
+                u.institution_id AS leader_institution_id,
+                u.name AS leader_name, u.major AS leader_major,
+                (SELECT COUNT(*) FROM group_members m
+                  WHERE m.group_id = g.id AND m.status = 'active') AS member_count
+         FROM study_groups g
+         JOIN users u ON u.id = g.leader_id
+         WHERE g.status = 'active'",
+    )
+    .fetch_all(executor)
+    .await
+    .map_err(map_db_error)
+}
+
 pub async fn list_active_members(
     executor: impl sqlx::Executor<'_, Database = Postgres>,
     group_id: Uuid,

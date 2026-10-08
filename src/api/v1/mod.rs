@@ -11,6 +11,8 @@ mod health;
 mod media;
 mod messages;
 mod notifications;
+mod recommend;
+mod search;
 mod users;
 
 pub fn media_routes(max_bytes: usize) -> Router<AppState> {
@@ -25,6 +27,8 @@ pub fn router() -> Router<AppState> {
         .route("/auth/login", post(auth::login))
         .route("/auth/refresh", post(auth::refresh))
         .route("/auth/logout", post(auth::logout))
+        .route("/recommend", post(recommend::recommend))
+        .route("/search/groups", post(search::search_groups))
         .route("/me", get(users::me).patch(users::patch_me))
         .route("/institutions", get(users::list_institutions))
         .route("/groups", post(groups::create))

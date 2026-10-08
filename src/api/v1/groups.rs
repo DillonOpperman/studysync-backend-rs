@@ -16,6 +16,14 @@ pub async fn create(
 ) -> Result<(StatusCode, Json<GroupDto>), AppError> {
     let user_id = require_user(auth);
     let group = services::groups::create_group(&state.db, user_id, body).await?;
+    if let Err(error) =
+        services::embeddings::upsert_group(&state.db, &state.embeddings, group.id).await
+    {
+        tracing::error!(
+            code = error.code(),
+            "group embedding persist failed after create"
+        );
+    }
     Ok((StatusCode::CREATED, Json(group)))
 }
 

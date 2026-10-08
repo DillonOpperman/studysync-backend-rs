@@ -415,3 +415,51 @@ pub struct MediaDto {
     pub status: String,
     pub download_url: Option<String>,
 }
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecommendResponse {
+    pub groups: Vec<RecommendedGroupDto>,
+    pub create_new: bool,
+    pub formula: &'static str,
+    pub model_id: String,
+    pub semantic_available: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecommendedGroupDto {
+    pub group: GroupDto,
+    pub score: f32,
+    pub group_subject: f32,
+    pub leader_subject_similarity: f32,
+    pub schedule_overlap: f32,
+    pub size_match: f32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSearchRequest {
+    pub query: String,
+    pub mode: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+    pub threshold: Option<f32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSearchResponse {
+    pub mode: String,
+    pub query: String,
+    pub results: Vec<GroupSearchResultDto>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GroupSearchResultDto {
+    pub group: GroupDto,
+    pub score: f32,
+}
