@@ -1,8 +1,11 @@
 pub mod auth;
+pub mod embeddings;
 pub mod friends;
 pub mod group_chat;
 pub mod groups;
 pub mod media;
 pub mod messages;
 pub mod notifications;
+pub mod recommend;
+pub mod search;
 pub mod users;

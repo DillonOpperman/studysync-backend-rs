@@ -84,6 +84,10 @@ pub enum AppError {
     MediaForbidden,
     #[error("upload is too large")]
     UploadTooLarge,
+    #[error("semantic search is unavailable")]
+    SemanticUnavailable,
+    #[error("embedding dimensions do not match the selected model")]
+    EmbeddingDimensionMismatch,
 }
 
 #[derive(Debug, Serialize)]
@@ -145,6 +149,8 @@ impl AppError {
             Self::MediaNotFound => "media_not_found",
             Self::MediaForbidden => "media_forbidden",
             Self::UploadTooLarge => "upload_too_large",
+            Self::SemanticUnavailable => "semantic_unavailable",
+            Self::EmbeddingDimensionMismatch => "embedding_dimension_mismatch",
         }
     }
 
@@ -181,6 +187,8 @@ impl AppError {
             Self::MessageDeleted => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::UploadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+            Self::SemanticUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::EmbeddingDimensionMismatch => StatusCode::BAD_REQUEST,
             Self::UserNotFound
             | Self::GroupNotFound
             | Self::JoinRequestNotFound

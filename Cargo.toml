@@ -19,6 +19,7 @@ futures-util = "0.3"
 hex = "0.4"
 hmac = "0.12"
 jsonwebtoken = "9"
+pgvector = { version = "0.4", features = ["sqlx"] }
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 rusty-s3 = "0.5"

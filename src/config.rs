@@ -32,6 +32,15 @@ pub struct Config {
     pub storage: Option<StorageConfig>,
     pub media_max_bytes: u64,
     pub media_signed_url_ttl: Duration,
+    pub embedding_backend: EmbeddingBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmbeddingBackend {
+    /// Deterministic hashed encoder with the selected model's dimensions and query format.
+    Hash,
+    /// Semantic encode/search fail closed. Structured matching may still run.
+    Unavailable,
 }
 
 /// S3-compatible object store. Secrets are never included in Debug.
@@ -178,6 +187,21 @@ impl Config {
             None
         };
 
+        let embedding_backend = match optional(vars, "EMBEDDING_BACKEND")
+            .unwrap_or_else(|| "hash".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "hash" => EmbeddingBackend::Hash,
+            "unavailable" => EmbeddingBackend::Unavailable,
+            _ => {
+                return Err(ConfigError::Invalid {
+                    name: "EMBEDDING_BACKEND",
+                    reason: "must be hash or unavailable",
+                })
+            }
+        };
+
         Ok(Self {
             database_url,
             redis_url,
@@ -190,6 +214,7 @@ impl Config {
             storage,
             media_max_bytes,
             media_signed_url_ttl,
+            embedding_backend,
         })
     }
 
@@ -205,6 +230,7 @@ impl Config {
             pool_min = self.database_pool.min_connections,
             object_storage = self.storage.is_some(),
             media_max_bytes = self.media_max_bytes,
+            embedding_backend = ?self.embedding_backend,
             "configuration loaded"
         );
     }
@@ -224,6 +250,7 @@ impl fmt::Debug for Config {
             .field("storage", &self.storage.as_ref().map(|_| "<redacted>"))
             .field("media_max_bytes", &self.media_max_bytes)
             .field("media_signed_url_ttl", &self.media_signed_url_ttl)
+            .field("embedding_backend", &self.embedding_backend)
             .finish()
     }
 }
@@ -307,6 +334,7 @@ mod tests {
         assert_eq!(config.server_port, 8080);
         assert!(config.redis_url.is_none());
         assert_eq!(config.database_pool.max_connections, 10);
+        assert_eq!(config.embedding_backend, EmbeddingBackend::Hash);
     }
 
     #[test]

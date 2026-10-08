@@ -3,6 +3,7 @@ use sqlx::PgPool;
 
 use crate::config::Config;
 
+pub mod embeddings;
 pub mod group_chat;
 pub mod groups;
 pub mod identity;
