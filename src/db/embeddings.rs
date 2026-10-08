@@ -3,7 +3,6 @@ use pgvector::Vector;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::embed::catalog;
 use crate::error::{map_db_error, AppError};
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -18,6 +17,15 @@ pub struct EmbeddingRow {
     pub updated_at: DateTime<Utc>,
 }
 
+fn table_for_dim(dim: usize) -> Result<&'static str, AppError> {
+    match dim {
+        384 => Ok("entity_embeddings_384"),
+        768 => Ok("entity_embeddings_768"),
+        1024 => Ok("entity_embeddings_1024"),
+        _ => Err(AppError::EmbeddingDimensionMismatch),
+    }
+}
+
 pub async fn upsert(
     tx: &mut Transaction<'_, Postgres>,
     entity_kind: &str,
@@ -26,15 +34,13 @@ pub async fn upsert(
     source_hash: &str,
     values: &[f32],
 ) -> Result<(), AppError> {
-    if values.len() != catalog::PRODUCTION_EMBEDDING_DIM {
-        return Err(AppError::EmbeddingDimensionMismatch);
-    }
+    let table = table_for_dim(values.len())?;
     if model_id.trim().is_empty() {
         return Err(AppError::validation("modelId is required"));
     }
     let vector = Vector::from(values.to_vec());
-    sqlx::query(
-        "INSERT INTO entity_embeddings (
+    let sql = format!(
+        "INSERT INTO {table} (
             id, entity_kind, entity_id, model_id, dimensions, embedding, source_hash
          ) VALUES ($1,$2,$3,$4,$5,$6,$7)
          ON CONFLICT (entity_kind, entity_id, model_id)
@@ -43,18 +49,19 @@ pub async fn upsert(
             dimensions = EXCLUDED.dimensions,
             source_hash = EXCLUDED.source_hash,
             updated_at = now()
-         WHERE entity_embeddings.source_hash IS DISTINCT FROM EXCLUDED.source_hash",
-    )
-    .bind(Uuid::now_v7())
-    .bind(entity_kind)
-    .bind(entity_id)
-    .bind(model_id)
-    .bind(catalog::PRODUCTION_EMBEDDING_DIM as i32)
-    .bind(vector)
-    .bind(source_hash)
-    .execute(&mut **tx)
-    .await
-    .map_err(map_db_error)?;
+         WHERE {table}.source_hash IS DISTINCT FROM EXCLUDED.source_hash"
+    );
+    sqlx::query(&sql)
+        .bind(Uuid::now_v7())
+        .bind(entity_kind)
+        .bind(entity_id)
+        .bind(model_id)
+        .bind(values.len() as i32)
+        .bind(vector)
+        .bind(source_hash)
+        .execute(&mut **tx)
+        .await
+        .map_err(map_db_error)?;
     Ok(())
 }
 
@@ -66,8 +73,17 @@ pub async fn get(
 ) -> Result<Option<EmbeddingRow>, AppError> {
     sqlx::query_as::<_, EmbeddingRow>(
         "SELECT id, entity_kind, entity_id, model_id, dimensions, source_hash, created_at, updated_at
-         FROM entity_embeddings
-         WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3",
+         FROM entity_embeddings_384
+         WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3
+         UNION ALL
+         SELECT id, entity_kind, entity_id, model_id, dimensions, source_hash, created_at, updated_at
+         FROM entity_embeddings_768
+         WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3
+         UNION ALL
+         SELECT id, entity_kind, entity_id, model_id, dimensions, source_hash, created_at, updated_at
+         FROM entity_embeddings_1024
+         WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3
+         LIMIT 1",
     )
     .bind(entity_kind)
     .bind(entity_id)
@@ -83,9 +99,21 @@ pub async fn load_vector(
     entity_id: Uuid,
     model_id: &str,
 ) -> Result<Option<Vec<f32>>, AppError> {
-    let row: Option<(Vector,)> = sqlx::query_as(
-        "SELECT embedding FROM entity_embeddings
-         WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3",
+    let row: Option<(Vec<f32>,)> = sqlx::query_as(
+        "SELECT embedding FROM (
+            SELECT embedding::real[] AS embedding
+            FROM entity_embeddings_384
+            WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3
+            UNION ALL
+            SELECT embedding::real[]
+            FROM entity_embeddings_768
+            WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3
+            UNION ALL
+            SELECT embedding::real[]
+            FROM entity_embeddings_1024
+            WHERE entity_kind = $1 AND entity_id = $2 AND model_id = $3
+         ) s
+         LIMIT 1",
     )
     .bind(entity_kind)
     .bind(entity_id)
@@ -93,7 +121,7 @@ pub async fn load_vector(
     .fetch_optional(executor)
     .await
     .map_err(map_db_error)?;
-    Ok(row.map(|tuple| tuple.0.to_vec()))
+    Ok(row.map(|tuple| tuple.0))
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -110,29 +138,28 @@ pub async fn search_groups(
     limit: i64,
     offset: i64,
 ) -> Result<Vec<SemanticHit>, AppError> {
-    if query.len() != catalog::PRODUCTION_EMBEDDING_DIM {
-        return Err(AppError::EmbeddingDimensionMismatch);
-    }
+    let table = table_for_dim(query.len())?;
     let vector = Vector::from(query.to_vec());
-    sqlx::query_as::<_, SemanticHit>(
+    let sql = format!(
         "SELECT e.entity_id,
                 (1 - (e.embedding <=> $1))::real AS similarity
-         FROM entity_embeddings e
+         FROM {table} e
          JOIN study_groups g ON g.id = e.entity_id AND g.status = 'active'
          WHERE e.entity_kind = 'group'
            AND e.model_id = $2
            AND (1 - (e.embedding <=> $1)) >= $3
          ORDER BY e.embedding <=> $1
-         LIMIT $4 OFFSET $5",
-    )
-    .bind(vector)
-    .bind(model_id)
-    .bind(threshold)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(executor)
-    .await
-    .map_err(map_db_error)
+         LIMIT $4 OFFSET $5"
+    );
+    sqlx::query_as::<_, SemanticHit>(&sql)
+        .bind(vector)
+        .bind(model_id)
+        .bind(threshold)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(executor)
+        .await
+        .map_err(map_db_error)
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

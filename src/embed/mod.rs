@@ -1,7 +1,12 @@
+pub mod bge;
 pub mod catalog;
 pub mod eval;
 pub mod hashing;
+mod hf;
 pub mod minilm;
+pub mod nomic;
+mod nomic_bert;
+mod pool;
 pub mod qwen;
 mod qwen3_model;
 
@@ -13,6 +18,9 @@ use sha2::{Digest, Sha256};
 use crate::config::{Config, EmbeddingBackend};
 use crate::error::AppError;
 
+use self::bge::BgeSmallEmbedder;
+use self::minilm::MiniLmEmbedder;
+use self::nomic::NomicEmbedder;
 use self::qwen::{QwenEmbedder, QwenLoadOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +28,8 @@ pub enum QueryStyle {
     Raw,
     QwenInstruct,
     E5Instruct,
+    BgeInstruct,
+    NomicSearch,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -162,10 +172,20 @@ impl EmbeddingService {
                     cache_dir: &config.embedding_cache_dir,
                     max_length: config.embedding_max_length,
                 })?;
-                Ok(Self {
-                    inner: Arc::new(embedder),
-                    semantic_available: true,
-                })
+                Ok(Self::from_loaded(Arc::new(embedder)))
+            }
+            EmbeddingBackend::MiniLm => {
+                let embedder = MiniLmEmbedder::load(&config.embedding_cache_dir)?;
+                Ok(Self::from_loaded(Arc::new(embedder)))
+            }
+            EmbeddingBackend::BgeSmall => {
+                let embedder = BgeSmallEmbedder::load(&config.embedding_cache_dir)?;
+                Ok(Self::from_loaded(Arc::new(embedder)))
+            }
+            EmbeddingBackend::Nomic => {
+                let embedder =
+                    NomicEmbedder::load(&config.embedding_cache_dir, config.embedding_max_length)?;
+                Ok(Self::from_loaded(Arc::new(embedder)))
             }
             EmbeddingBackend::Unavailable => Ok(Self::unavailable()),
         }
@@ -173,10 +193,10 @@ impl EmbeddingService {
 
     pub fn from_backend(backend: EmbeddingBackend) -> Result<Self, EmbeddingError> {
         match backend {
-            EmbeddingBackend::Qwen => Err(EmbeddingError::Unavailable(
-                "Qwen backend requires cache directory via Config".into(),
-            )),
             EmbeddingBackend::Unavailable => Ok(Self::unavailable()),
+            _ => Err(EmbeddingError::Unavailable(
+                "neural embedding backends require EMBEDDING_CACHE_DIR via Config".into(),
+            )),
         }
     }
 
@@ -278,13 +298,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn production_metadata_is_exact_qwen_not_nickname() {
+    fn production_metadata_has_pinned_revision() {
         let meta = catalog::production();
-        assert_eq!(meta.exact_name, "Qwen/Qwen3-Embedding-0.6B");
-        assert_eq!(meta.dimensions, 1024);
-        assert_eq!(meta.model_id, catalog::PRODUCTION_MODEL_ID);
+        assert!(!meta.exact_name.is_empty());
         assert!(!meta.revision.is_empty());
-        assert_eq!(meta.license, "Apache-2.0");
+        assert_eq!(meta.model_id, catalog::PRODUCTION_MODEL_ID);
+        assert_eq!(meta.dimensions, catalog::PRODUCTION_EMBEDDING_DIM);
         assert!(meta.commercially_redistributable);
         assert!(meta.selected);
     }
@@ -295,7 +314,7 @@ mod tests {
         let a = embedder.encode_document("Computer Networks lab").unwrap();
         let b = embedder.encode_document("Computer Networks lab").unwrap();
         assert_eq!(a, b);
-        assert_eq!(a.len(), 1024);
+        assert_eq!(a.len(), catalog::PRODUCTION_EMBEDDING_DIM);
         let norm: f32 = a.iter().map(|v| v * v).sum::<f32>().sqrt();
         assert!((norm - 1.0).abs() < 1e-4);
     }

@@ -40,7 +40,10 @@ pub struct Config {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbeddingBackend {
-    /// Real `Qwen/Qwen3-Embedding-0.6B` Candle inference at the pinned revision.
+    MiniLm,
+    BgeSmall,
+    Nomic,
+    /// Previous heavyweight candidate; not the lightweight bake-off default.
     Qwen,
     /// Semantic encode/search fail closed. Structured matching may still run.
     Unavailable,
@@ -191,22 +194,25 @@ impl Config {
         };
 
         let embedding_backend = match optional(vars, "EMBEDDING_BACKEND")
-            .unwrap_or_else(|| "qwen".to_string())
+            .unwrap_or_else(|| "nomic".to_string())
             .to_ascii_lowercase()
             .as_str()
         {
+            "minilm" => EmbeddingBackend::MiniLm,
+            "bge" | "bge-small" | "bge_small" => EmbeddingBackend::BgeSmall,
+            "nomic" => EmbeddingBackend::Nomic,
             "qwen" => EmbeddingBackend::Qwen,
             "unavailable" => EmbeddingBackend::Unavailable,
             "hash" => {
                 return Err(ConfigError::Invalid {
                     name: "EMBEDDING_BACKEND",
-                    reason: "hashed stand-in is not a production backend; use qwen or unavailable",
+                    reason: "hashed stand-in is not a production backend; use minilm, bge, nomic, qwen, or unavailable",
                 })
             }
             _ => {
                 return Err(ConfigError::Invalid {
                     name: "EMBEDDING_BACKEND",
-                    reason: "must be qwen or unavailable",
+                    reason: "must be minilm, bge, nomic, qwen, or unavailable",
                 })
             }
         };
@@ -357,7 +363,7 @@ mod tests {
         assert_eq!(config.server_port, 8080);
         assert!(config.redis_url.is_none());
         assert_eq!(config.database_pool.max_connections, 10);
-        assert_eq!(config.embedding_backend, EmbeddingBackend::Qwen);
+        assert_eq!(config.embedding_backend, EmbeddingBackend::Nomic);
     }
 
     #[test]

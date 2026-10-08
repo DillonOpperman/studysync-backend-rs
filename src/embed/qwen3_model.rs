@@ -87,7 +87,10 @@ fn last_token_pool(hidden: &Tensor, attention_mask_2d: &Tensor) -> Result<Tensor
     }
     let mut pooled_rows = Vec::with_capacity(batch_size);
     for (batch_idx, row) in masks.iter().enumerate() {
-        let last_idx = row.iter().rposition(|&value| value > 0.0).unwrap_or(seq_len - 1);
+        let last_idx = row
+            .iter()
+            .rposition(|&value| value > 0.0)
+            .unwrap_or(seq_len - 1);
         pooled_rows.push(hidden.i((batch_idx, last_idx))?);
     }
     let pooled_refs: Vec<&Tensor> = pooled_rows.iter().collect();
@@ -187,7 +190,10 @@ impl Qwen3RotaryEmbedding {
             .to_dtype(DType::F32)?
             .reshape((batch, 1, seq))?
             .contiguous()?;
-        let freqs = inv_freq_expanded.matmul(&pos)?.transpose(1, 2)?.contiguous()?;
+        let freqs = inv_freq_expanded
+            .matmul(&pos)?
+            .transpose(1, 2)?
+            .contiguous()?;
         let emb = Tensor::cat(&[&freqs, &freqs], 2)?;
         let scale = scalar_f32(xs.device(), self.attention_factor)?;
         let cos = emb.cos()?.broadcast_mul(&scale)?.to_dtype(xs.dtype())?;
@@ -380,7 +386,11 @@ impl Qwen3Model {
         })
     }
 
-    pub fn forward(&self, input_ids: &Tensor, attention_mask_4d: Option<&Tensor>) -> Result<Tensor> {
+    pub fn forward(
+        &self,
+        input_ids: &Tensor,
+        attention_mask_4d: Option<&Tensor>,
+    ) -> Result<Tensor> {
         let hs = self.embed_tokens.forward(input_ids)?;
         let (b, t, _) = hs.dims3()?;
         let pos = Tensor::arange(0u32, t as u32, hs.device())?
@@ -403,7 +413,9 @@ impl Qwen3Model {
         let mask4 = build_attention_mask_4d(attention_mask_2d)?;
         let hidden = self.forward(input_ids, Some(&mask4))?;
         let pooled = last_token_pool(&hidden, attention_mask_2d)?;
-        l2_normalize(&pooled)?.to_dtype(DType::F32)?.to_vec2::<f32>()
+        l2_normalize(&pooled)?
+            .to_dtype(DType::F32)?
+            .to_vec2::<f32>()
     }
 
     pub fn device(&self) -> &Device {

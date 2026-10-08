@@ -38,8 +38,7 @@ impl AppState {
         });
         let embeddings = EmbeddingService::from_config(&config).map_err(|error| {
             format!(
-                "failed to load embedding backend (EMBEDDING_BACKEND=qwen downloads Qwen/Qwen3-Embedding-0.6B@{}; use unavailable for structured-only): {error}",
-                crate::embed::catalog::QWEN3_EMBEDDING_06B_REVISION
+                "failed to load embedding backend (EMBEDDING_BACKEND=minilm|bge|nomic|qwen downloads pinned Hugging Face weights; use unavailable for structured-only): {error}"
             )
         })?;
         Ok(Self {

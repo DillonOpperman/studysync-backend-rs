@@ -202,14 +202,19 @@ impl QueryStyle {
             Self::E5Instruct => format!(
                 "Instruct: Given a study-group search query, retrieve relevant study groups\nQuery: {trimmed}"
             ),
+            Self::BgeInstruct => {
+                format!("Represent this sentence for searching relevant passages: {trimmed}")
+            }
+            Self::NomicSearch => format!("search_query: {trimmed}"),
         }
     }
 
     pub fn format_document(self, text: &str) -> String {
         let trimmed = text.trim();
         match self {
-            Self::Raw | Self::QwenInstruct => trimmed.to_string(),
+            Self::Raw | Self::QwenInstruct | Self::BgeInstruct => trimmed.to_string(),
             Self::E5Instruct => format!("passage: {trimmed}"),
+            Self::NomicSearch => format!("search_document: {trimmed}"),
         }
     }
 }

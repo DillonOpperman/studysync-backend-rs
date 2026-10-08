@@ -82,6 +82,44 @@ async fn embedding_versions_can_coexist() {
 }
 
 #[tokio::test]
+async fn embeddings_of_different_dimensions_do_not_share_a_column() {
+    let state = test_state().await;
+    let mut tx = state.db.begin().await.expect("tx");
+    let entity = Uuid::now_v7();
+    embeddings::upsert(
+        &mut tx,
+        "group",
+        entity,
+        "all-minilm-l6-v2:legacy",
+        "hash-384",
+        &vec![0.01; 384],
+    )
+    .await
+    .expect("384");
+    embeddings::upsert(
+        &mut tx,
+        "group",
+        entity,
+        "nomic-embed-text-v1.5:v1",
+        "hash-768",
+        &vec![0.01; 768],
+    )
+    .await
+    .expect("768");
+    let a = embeddings::load_vector(&mut *tx, "group", entity, "all-minilm-l6-v2:legacy")
+        .await
+        .expect("load")
+        .expect("row");
+    let b = embeddings::load_vector(&mut *tx, "group", entity, "nomic-embed-text-v1.5:v1")
+        .await
+        .expect("load")
+        .expect("row");
+    tx.commit().await.expect("commit");
+    assert_eq!(a.len(), 384);
+    assert_eq!(b.len(), 768);
+}
+
+#[tokio::test]
 async fn wrong_dimension_is_rejected() {
     let state = test_state().await;
     let mut tx = state.db.begin().await.expect("tx");
@@ -91,7 +129,7 @@ async fn wrong_dimension_is_rejected() {
         Uuid::now_v7(),
         catalog::PRODUCTION_MODEL_ID,
         "hash",
-        &[0.1; 384],
+        &[0.1; 16],
     )
     .await
     .expect_err("dim");

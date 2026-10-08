@@ -302,8 +302,12 @@ mod tests {
             assert_eq!(report.document_count, 24);
             assert_eq!(report.labeled_pairs, load_dataset().relevance.len());
         }
-        let selected = reports.iter().find(|row| row.metadata.selected).unwrap();
-        assert_eq!(selected.metadata.model_id, catalog::PRODUCTION_MODEL_ID);
+        assert!(
+            reports.iter().all(|row| !row.metadata.selected),
+            "historical stand-in catalog is not the production selection"
+        );
+        assert_eq!(catalog::production().model_id, catalog::PRODUCTION_MODEL_ID);
+        assert!(catalog::production().selected);
         for report in &reports {
             eprintln!(
                 "STAND-IN (not neural) {} dim={} top1={:.3} recall5={:.3} ndcg5={:.3} order={:.3} q_ms={:.3} d_ms={:.3} load_ms={:.3}",

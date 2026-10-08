@@ -5,11 +5,11 @@ use std::time::Instant;
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config};
-use hf_hub::api::sync::ApiBuilder;
-use hf_hub::{Repo, RepoType};
 use tokenizers::{PaddingDirection, PaddingParams, PaddingStrategy, Tokenizer, TruncationParams};
 
 use super::catalog;
+use super::hf;
+use super::pool::mean_pool_l2;
 use super::{Embedder, EmbeddingError, ModelMetadata};
 
 const HF_REPO: &str = "sentence-transformers/all-MiniLM-L6-v2";
@@ -25,6 +25,7 @@ pub struct MiniLmEmbedder {
     metadata: ModelMetadata,
     inner: Mutex<MiniLmInner>,
     pub load_ms: f64,
+    pub weight_bytes: u64,
 }
 
 impl MiniLmEmbedder {
@@ -34,37 +35,10 @@ impl MiniLmEmbedder {
             EmbeddingError::Unavailable(format!("cannot create embedding cache: {error}"))
         })?;
         let revision = catalog::minilm_baseline().revision;
-        let api = ApiBuilder::new()
-            .with_cache_dir(cache_dir.to_path_buf())
-            .with_progress(true)
-            .build()
-            .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-        let repo = api.repo(Repo::with_revision(
-            HF_REPO.to_string(),
-            RepoType::Model,
-            revision.to_string(),
-        ));
-        let cfg_path = repo
-            .get("config.json")
-            .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-        verify_snapshot(&cfg_path, revision)?;
-        let tok_path = repo
-            .get("tokenizer.json")
-            .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-        let weights = repo.get("model.safetensors").or_else(|_| {
-            repo.get("pytorch_model.bin").map_err(|error| {
-                EmbeddingError::Unavailable(format!("minilm weights: {error}"))
-            })
-        })?;
-        if weights
-            .extension()
-            .and_then(|ext| ext.to_str())
-            != Some("safetensors")
-        {
-            return Err(EmbeddingError::Unavailable(
-                "MiniLM snapshot must provide model.safetensors".into(),
-            ));
-        }
+        let cfg_path = hf::snapshot_file(cache_dir, HF_REPO, revision, "config.json")?;
+        let tok_path = hf::snapshot_file(cache_dir, HF_REPO, revision, "tokenizer.json")?;
+        let weights = hf::snapshot_file(cache_dir, HF_REPO, revision, "model.safetensors")?;
+        let weight_bytes = hf::weight_bytes(&weights);
 
         let device = Device::Cpu;
         let cfg: Config = serde_json::from_slice(
@@ -98,6 +72,7 @@ impl MiniLmEmbedder {
                 device,
             }),
             load_ms: started.elapsed().as_secs_f64() * 1000.0,
+            weight_bytes,
         })
     }
 
@@ -133,7 +108,7 @@ impl MiniLmEmbedder {
             .model
             .forward(&input_ids, &token_type_ids, Some(&attention))
             .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-        mean_pool_normalize(&hidden, &attention)
+        mean_pool_l2(&hidden, &attention)
     }
 }
 
@@ -170,57 +145,4 @@ impl Embedder for MiniLmEmbedder {
     fn encode_documents(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
         self.encode_queries(texts)
     }
-}
-
-fn verify_snapshot(config_path: &Path, revision: &str) -> Result<(), EmbeddingError> {
-    let name = config_path
-        .parent()
-        .and_then(|path| path.file_name())
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
-    if name != revision {
-        return Err(EmbeddingError::Unavailable(format!(
-            "refusing unpinned MiniLM snapshot {name}; expected {revision}"
-        )));
-    }
-    Ok(())
-}
-
-fn mean_pool_normalize(
-    hidden: &Tensor,
-    attention: &Tensor,
-) -> Result<Vec<Vec<f32>>, EmbeddingError> {
-    let mask = attention
-        .to_dtype(DType::F32)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?
-        .unsqueeze(2)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-    let summed = hidden
-        .broadcast_mul(&mask)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?
-        .sum(1)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-    let counts = mask
-        .sum(1)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?
-        .clamp(1e-9, f32::MAX)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-    let pooled = summed
-        .broadcast_div(&counts)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-    let norm = pooled
-        .sqr()
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?
-        .sum_keepdim(1)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?
-        .sqrt()
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?
-        .clamp(1e-12, f32::MAX)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-    let normalized = pooled
-        .broadcast_div(&norm)
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))?;
-    normalized
-        .to_vec2::<f32>()
-        .map_err(|error| EmbeddingError::Unavailable(error.to_string()))
 }
