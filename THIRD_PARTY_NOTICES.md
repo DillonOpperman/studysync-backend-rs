@@ -8,13 +8,16 @@ This product is intended for commercial/public release. Licenses below were read
 
 | Field | Value |
 | --- | --- |
-| Exact name | `Qwen/Qwen3-Embedding-0.6B` |
-| Version id | `qwen3-embedding-0.6b:v1` |
-| Revision | `c935f2d3fce3e2337b4a66ac3130faa6dada3218` |
+| Exact name | `nomic-ai/nomic-embed-text-v1.5` |
+| Version id | `nomic-embed-text-v1.5:v1` |
+| Revision | `e9b6763023c676ca8431644204f50c2b100d9aab` |
 | License | Apache License 2.0 |
-| Source | https://huggingface.co/Qwen/Qwen3-Embedding-0.6B |
-| Dimensions | 1024 (MRL 32–1024; StudySync stores 1024) |
-| Context | 32k tokens (model card) |
+| Source | https://huggingface.co/nomic-ai/nomic-embed-text-v1.5 |
+| Dimensions | 768 (Matryoshka capable; StudySync stores full 768) |
+| Context | 8192 on the model card; this runtime truncates at 512 (RoPE tables sized to 2048) |
+| Pooling | mean-pool, unparameterized layer-norm, L2 |
+| Query / document | `search_query: ` / `search_document: ` |
+| Runtime | Candle NomicBert CPU F32 (RoPE, fused QKV, SwiGLU) |
 | Notice | Redistribution of Apache-2.0 materials requires retaining copyright, license, and NOTICE files from the upstream package. This repository does not copy those files; include them beside downloaded weights at deploy time. |
 
 ## Fallback model (not the production default)
@@ -27,30 +30,32 @@ This product is intended for commercial/public release. Licenses below were read
 | License | Apache-2.0 (declared on the Hugging Face model card) |
 | Source | https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2 |
 | Dimensions | 384 |
-| Role | Legacy StudySync baseline; operational fallback if Qwen weights cannot be hosted |
+| Pooling | mean-pool, L2 |
+| Query / document | raw / raw |
+| Role | Lightweight fallback; best recall@5 and lowest latency on the frozen StudySync set |
 
-## Evaluated but not selected
+## Evaluated in the lightweight bake-off but not selected
 
-### `BAAI/bge-m3`
+### `BAAI/bge-small-en-v1.5`
 
-- Revision recorded from the model card tree: `6892b95fed65c899a30896eb40d619ae284d0455`
-- License: MIT
+- Revision: `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`
+- License: MIT (FlagEmbedding / model card: commercial use permitted)
+- Dimensions: 384
+- Query instruction: `Represent this sentence for searching relevant passages: `
+- Documents: no instruction
+- Pooling: mean-pool, L2
+- Source: https://huggingface.co/BAAI/bge-small-en-v1.5
+- Not selected: nDCG@5 below Nomic; recall@5 below MiniLM; weaker related/unrelated cosine separation
+
+### `Qwen/Qwen3-Embedding-0.6B` (previous heavyweight candidate)
+
+- Revision: `c935f2d3fce3e2337b4a66ac3130faa6dada3218`
+- License: Apache-2.0
 - Dimensions: 1024
-- Source: https://huggingface.co/BAAI/bge-m3
-- Not selected: multilingual dense/sparse/ColBERT path is more operationally complex than StudySync needs for an English-first campus product; StudySync-specific ranking did not justify the extra deployment surface.
+- Not selected for production: ~300 ms/query and ~1.4 GB RAM on this Windows CPU host
 
-### `intfloat/multilingual-e5-large-instruct`
+## Runtime
 
-- Revision recorded from a documented model-card commit: `b9fbfc1b8c70709e5371d98135d214b005562b7a`
-- License: MIT
-- Dimensions: 1024
-- Source: https://huggingface.co/intfloat/multilingual-e5-large-instruct
-- Not selected: 512-token context is tighter than Qwen; similar size to BGE with less operational upside for StudySync after the frozen eval.
+Weights download into `EMBEDDING_CACHE_DIR` (default `.fastembed_cache`) via Hugging Face Hub at the pinned revision. The loader refuses a snapshot directory that is not that commit. Pre-provision production by copying `models--nomic-ai--nomic-embed-text-v1.5/snapshots/e9b6763023c676ca8431644204f50c2b100d9aab/` into the cache. ONNX Runtime is not used.
 
-## Runtime (Candle)
-
-The Qwen3 decoder used at inference time is a text-only Candle port adapted from Anush008/fastembed-rs (`qwen3` feature, Apache-2.0). This repository does not depend on `fastembed` or ONNX Runtime.
-
-Production loads the official Qwen tokenizer and safetensors via Hugging Face Hub into `EMBEDDING_CACHE_DIR`. Weights are not in git. Runtime: in-process Candle Qwen3 transformer on CPU (F32), 1024-d L2-normalized last-token pooling, instruct-formatted queries. ONNX Runtime is not used.
-
-The hashed n-gram encoder remains a **unit-test-only** stand-in. It is not selectable as `EMBEDDING_BACKEND` and must not be treated as Qwen quality evidence. Historical stand-in numbers are labeled in `eval/RESULTS.md`.
+The hashed n-gram encoder is unit-test-only. `EMBEDDING_BACKEND=hash` is rejected.

@@ -18,19 +18,34 @@ Schedule overlap is structured (including overnight wrap and IANA timezones). Em
 
 - Recommendation: if the embedding backend is down, structured scores still run; `group_subject` falls back to exact/substring only (`semanticAvailable: false`).
 - Semantic search: HTTP 503 `semantic_unavailable`. No empty or random vectors.
+- Startup with `EMBEDDING_BACKEND=nomic` (or minilm/bge/qwen) fails clearly if weights cannot load. There is no hashed stand-in path.
 
 ## Embedding persistence
 
-Groups are re-encoded when title, subject, description, or included leader name/major change (`source_hash` of canonical text + `model_id`). Users are re-encoded when name, major, or courses change. Unrelated profile/media updates do not embed.
+Groups are re-encoded when title, subject, description, or included leader name/major change (`source_hash` of canonical text + `model_id`). Users are re-encoded when name, major, or courses change.
 
-Vectors live in `entity_embeddings` keyed by `(entity_kind, entity_id, model_id)` so old and new models can coexist. Production width is 1024 (`vector(1024)`), driven by Qwen3-Embedding-0.6B, not MiniLM’s 384.
+Vectors are stored in dimension-specific tables so incompatible widths never share a pgvector column:
 
-## Real Qwen weights
+- `entity_embeddings_384` — MiniLM / BGE-small
+- `entity_embeddings_768` — production Nomic
+- `entity_embeddings_1024` — historical Qwen rows (migration 0012 renamed the original table)
 
-Production inference is a Candle Qwen3 transformer (CPU F32) loading `Qwen/Qwen3-Embedding-0.6B` at revision `c935f2d3fce3e2337b4a66ac3130faa6dada3218`. fastembed/ONNX Runtime is not used (MSVC 2019 cannot link `ort` on this builder).
+ANN search always filters by `model_id` on the table that matches the query vector width.
 
-- First process start with `EMBEDDING_BACKEND=qwen` downloads tokenizer + safetensors into `EMBEDDING_CACHE_DIR` (default `.fastembed_cache`). Later starts reuse the cache; weights are not downloaded again if the snapshot is present.
-- Production can pre-provision the same Hugging Face snapshot under that cache (hf-hub layout: `models--Qwen--Qwen3-Embedding-0.6B/snapshots/<revision>/`). Verify revision by confirming the snapshot directory name is exactly `c935f2d3fce3e2337b4a66ac3130faa6dada3218`; the loader refuses any other folder name (no silent `main`).
-- `EMBEDDING_BACKEND=hash` is rejected. There is no production path that emits hashed stand-in vectors.
-- `EMBEDDING_BACKEND=unavailable` keeps structured recommendation and returns 503 for semantic search. Startup with `qwen` fails clearly if weights cannot load.
-- Default `cargo test` does not download weights. Neural eval (fails, does not fake-pass, if weights are missing): `cargo test --release --test model_eval -- --ignored --nocapture`.
+## Production model
+
+`nomic-ai/nomic-embed-text-v1.5` revision `e9b6763023c676ca8431644204f50c2b100d9aab`, Apache-2.0, 768-d.
+
+- Query: `search_query: {text}`
+- Document: `search_document: {text}`
+- Pooling: mean-pool, unparameterized layer-norm, L2
+- Runtime: Candle NomicBert CPU F32
+- Default `EMBEDDING_BACKEND=nomic`. Cache: `EMBEDDING_CACHE_DIR` (default `.fastembed_cache`).
+- First download only; later starts reuse the snapshot folder named for that revision. The loader refuses any other folder name (no silent `main`).
+- Provision production by placing the Hub snapshot at `models--nomic-ai--nomic-embed-text-v1.5/snapshots/e9b6763023c676ca8431644204f50c2b100d9aab/`.
+
+Fallback: MiniLM (`EMBEDDING_BACKEND=minilm`). Full-text search remains PostgreSQL-only and does not load embeddings.
+
+Neural eval: `cargo test --release --test model_eval -- --ignored --nocapture --test-threads=1`. Missing weights panic; they do not fake-pass.
+
+See `eval/RESULTS.md` for the MiniLM / BGE-small / Nomic numbers and the explicit selection rationale.
