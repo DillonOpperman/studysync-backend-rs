@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::net::IpAddr;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use thiserror::Error;
@@ -33,12 +34,14 @@ pub struct Config {
     pub media_max_bytes: u64,
     pub media_signed_url_ttl: Duration,
     pub embedding_backend: EmbeddingBackend,
+    pub embedding_cache_dir: PathBuf,
+    pub embedding_max_length: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbeddingBackend {
-    /// Deterministic hashed encoder with the selected model's dimensions and query format.
-    Hash,
+    /// Real `Qwen/Qwen3-Embedding-0.6B` Candle inference at the pinned revision.
+    Qwen,
     /// Semantic encode/search fail closed. Structured matching may still run.
     Unavailable,
 }
@@ -188,19 +191,33 @@ impl Config {
         };
 
         let embedding_backend = match optional(vars, "EMBEDDING_BACKEND")
-            .unwrap_or_else(|| "hash".to_string())
+            .unwrap_or_else(|| "qwen".to_string())
             .to_ascii_lowercase()
             .as_str()
         {
-            "hash" => EmbeddingBackend::Hash,
+            "qwen" => EmbeddingBackend::Qwen,
             "unavailable" => EmbeddingBackend::Unavailable,
+            "hash" => {
+                return Err(ConfigError::Invalid {
+                    name: "EMBEDDING_BACKEND",
+                    reason: "hashed stand-in is not a production backend; use qwen or unavailable",
+                })
+            }
             _ => {
                 return Err(ConfigError::Invalid {
                     name: "EMBEDDING_BACKEND",
-                    reason: "must be hash or unavailable",
+                    reason: "must be qwen or unavailable",
                 })
             }
         };
+        let embedding_cache_dir = optional(vars, "EMBEDDING_CACHE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(".fastembed_cache"));
+        let embedding_max_length = optional(vars, "EMBEDDING_MAX_LENGTH")
+            .map(|value| parse_u32(value, "EMBEDDING_MAX_LENGTH", 32, 8192))
+            .transpose()?
+            .map(|value| value as usize)
+            .unwrap_or(512);
 
         Ok(Self {
             database_url,
@@ -215,6 +232,8 @@ impl Config {
             media_max_bytes,
             media_signed_url_ttl,
             embedding_backend,
+            embedding_cache_dir,
+            embedding_max_length,
         })
     }
 
@@ -231,6 +250,8 @@ impl Config {
             object_storage = self.storage.is_some(),
             media_max_bytes = self.media_max_bytes,
             embedding_backend = ?self.embedding_backend,
+            embedding_cache = %self.embedding_cache_dir.display(),
+            embedding_max_length = self.embedding_max_length,
             "configuration loaded"
         );
     }
@@ -251,6 +272,8 @@ impl fmt::Debug for Config {
             .field("media_max_bytes", &self.media_max_bytes)
             .field("media_signed_url_ttl", &self.media_signed_url_ttl)
             .field("embedding_backend", &self.embedding_backend)
+            .field("embedding_cache_dir", &self.embedding_cache_dir)
+            .field("embedding_max_length", &self.embedding_max_length)
             .finish()
     }
 }
@@ -334,7 +357,7 @@ mod tests {
         assert_eq!(config.server_port, 8080);
         assert!(config.redis_url.is_none());
         assert_eq!(config.database_pool.max_connections, 10);
-        assert_eq!(config.embedding_backend, EmbeddingBackend::Hash);
+        assert_eq!(config.embedding_backend, EmbeddingBackend::Qwen);
     }
 
     #[test]
@@ -368,6 +391,20 @@ mod tests {
             err,
             ConfigError::Invalid {
                 name: "DATABASE_URL",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn hashed_standin_is_not_a_config_backend() {
+        let mut vars = base_vars();
+        vars.insert("EMBEDDING_BACKEND".into(), "hash".into());
+        let err = Config::from_vars(&vars).unwrap_err();
+        assert!(matches!(
+            err,
+            ConfigError::Invalid {
+                name: "EMBEDDING_BACKEND",
                 ..
             }
         ));

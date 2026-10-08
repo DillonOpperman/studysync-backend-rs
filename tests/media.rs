@@ -8,6 +8,8 @@ use uuid::Uuid;
 
 const BOUNDARY: &str = "----StudysyncTestBoundary";
 
+type MultipartField<'a> = (&'a str, Option<&'a str>, Option<&'a str>, &'a [u8]);
+
 fn png_bytes() -> Vec<u8> {
     let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
     bytes.extend_from_slice(&[0, 1, 2, 3, 4, 5, 6, 7]);
@@ -35,7 +37,7 @@ fn docx_bytes() -> Vec<u8> {
     zip.finish().unwrap().into_inner()
 }
 
-fn multipart(fields: &[(&str, Option<&str>, Option<&str>, &[u8])]) -> Vec<u8> {
+fn multipart(fields: &[MultipartField<'_>]) -> Vec<u8> {
     let mut body = Vec::new();
     for (name, filename, content_type, data) in fields {
         body.extend_from_slice(format!("--{BOUNDARY}\r\n").as_bytes());
@@ -65,7 +67,7 @@ fn multipart(fields: &[(&str, Option<&str>, Option<&str>, &[u8])]) -> Vec<u8> {
 async fn upload(
     state: studysync_backend::AppState,
     access: &str,
-    fields: &[(&str, Option<&str>, Option<&str>, &[u8])],
+    fields: &[MultipartField<'_>],
 ) -> (StatusCode, serde_json::Value) {
     send(
         state,
@@ -229,7 +231,7 @@ async fn uploads_validate_type_size_and_auth() {
 
     let huge = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]
         .into_iter()
-        .chain(std::iter::repeat(1u8).take(11 * 1024 * 1024))
+        .chain(std::iter::repeat_n(1u8, 11 * 1024 * 1024))
         .collect::<Vec<_>>();
     let (status, json) = upload(
         state.clone(),

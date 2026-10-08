@@ -1,16 +1,19 @@
 pub mod catalog;
 pub mod eval;
 pub mod hashing;
+pub mod minilm;
+pub mod qwen;
+mod qwen3_model;
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use sha2::{Digest, Sha256};
 
-use crate::config::EmbeddingBackend;
+use crate::config::{Config, EmbeddingBackend};
 use crate::error::AppError;
 
-use self::hashing::HashingEmbedder;
+use self::qwen::{QwenEmbedder, QwenLoadOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueryStyle {
@@ -58,6 +61,15 @@ pub trait Embedder: Send + Sync {
     fn metadata(&self) -> &ModelMetadata;
     fn encode_query(&self, text: &str) -> Result<Vec<f32>, EmbeddingError>;
     fn encode_document(&self, text: &str) -> Result<Vec<f32>, EmbeddingError>;
+    fn encode_queries(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+        texts.iter().map(|text| self.encode_query(text)).collect()
+    }
+    fn encode_documents(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, EmbeddingError> {
+        texts
+            .iter()
+            .map(|text| self.encode_document(text))
+            .collect()
+    }
     fn dimensions(&self) -> usize {
         self.metadata().dimensions
     }
@@ -143,28 +155,46 @@ pub struct EmbeddingService {
 }
 
 impl EmbeddingService {
-    pub fn from_backend(backend: EmbeddingBackend) -> Self {
-        let production = catalog::production();
-        match backend {
-            EmbeddingBackend::Hash => Self {
-                inner: Arc::new(HashingEmbedder::from_metadata(production)),
-                semantic_available: true,
-            },
-            EmbeddingBackend::Unavailable => Self {
-                inner: Arc::new(UnavailableEmbedder {
-                    metadata: production,
-                }),
-                semantic_available: false,
-            },
+    pub fn from_config(config: &Config) -> Result<Self, EmbeddingError> {
+        match config.embedding_backend {
+            EmbeddingBackend::Qwen => {
+                let embedder = QwenEmbedder::load(QwenLoadOptions {
+                    cache_dir: &config.embedding_cache_dir,
+                    max_length: config.embedding_max_length,
+                })?;
+                Ok(Self {
+                    inner: Arc::new(embedder),
+                    semantic_available: true,
+                })
+            }
+            EmbeddingBackend::Unavailable => Ok(Self::unavailable()),
         }
     }
 
-    pub fn hashing() -> Self {
-        Self::from_backend(EmbeddingBackend::Hash)
+    pub fn from_backend(backend: EmbeddingBackend) -> Result<Self, EmbeddingError> {
+        match backend {
+            EmbeddingBackend::Qwen => Err(EmbeddingError::Unavailable(
+                "Qwen backend requires cache directory via Config".into(),
+            )),
+            EmbeddingBackend::Unavailable => Ok(Self::unavailable()),
+        }
     }
 
     pub fn unavailable() -> Self {
-        Self::from_backend(EmbeddingBackend::Unavailable)
+        Self {
+            inner: Arc::new(UnavailableEmbedder {
+                metadata: catalog::production(),
+            }),
+            semantic_available: false,
+        }
+    }
+
+    /// Wrap an already-loaded neural embedder. Never wrap the hashed stand-in.
+    pub fn from_loaded(embedder: Arc<dyn Embedder>) -> Self {
+        Self {
+            inner: embedder,
+            semantic_available: true,
+        }
     }
 
     pub fn semantic_available(&self) -> bool {
@@ -244,6 +274,7 @@ impl From<EmbeddingError> for AppError {
 
 #[cfg(test)]
 mod tests {
+    use super::hashing::HashingEmbedder;
     use super::*;
 
     #[test]

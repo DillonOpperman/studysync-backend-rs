@@ -5,10 +5,8 @@ use super::{Embedder, EmbeddingError, ModelMetadata, QueryStyle};
 
 /// Deterministic hashed n-gram encoder with a StudySync synonym lexicon.
 ///
-/// This is the in-process encoder used for tests and local development. It is
-/// **not** the official Qwen/BGE/E5/MiniLM neural weights. Candidate evaluation
-/// still uses each model's documented query/document formatting and dimensions
-/// so StudySync ranking can be compared without shipping gigabytes of weights.
+/// Unit-test-only stand-in. It is **not** selectable as `EMBEDDING_BACKEND`.
+/// Historical ranking numbers from this encoder are not neural model quality.
 #[derive(Clone)]
 pub struct HashingEmbedder {
     metadata: ModelMetadata,

@@ -31,7 +31,7 @@ async fn run() -> Result<(), String> {
     tracing::info!("postgresql pool ready");
 
     let addr = SocketAddr::new(config.server_host, config.server_port);
-    let state = AppState::new(config, pool);
+    let state = AppState::try_new(config, pool)?;
     let app = api::router(state);
 
     let listener = tokio::net::TcpListener::bind(addr)

@@ -17,6 +17,7 @@ fn test_config() -> Config {
             "abcdefghijklmnopqrstuvwxyz012345".into(),
         ),
         ("PUBLIC_BASE_URL".into(), "http://127.0.0.1:8080".into()),
+        ("EMBEDDING_BACKEND".into(), "unavailable".into()),
     ]);
     Config::from_vars(&vars).expect("test config")
 }
@@ -106,6 +107,7 @@ async fn ready_returns_ready_when_postgres_is_available() {
         "abcdefghijklmnopqrstuvwxyz012345".into(),
     );
     vars.insert("PUBLIC_BASE_URL".into(), "http://127.0.0.1:8080".into());
+    vars.insert("EMBEDDING_BACKEND".into(), "unavailable".into());
     let config = Config::from_vars(&vars).expect("config");
 
     let db = match studysync_backend::db::create_pool(&config).await {

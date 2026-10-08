@@ -69,9 +69,17 @@ pub fn load_dataset() -> EvalDataset {
 }
 
 pub fn evaluate_embedder(embedder: &dyn Embedder, data: &EvalDataset) -> CandidateReport {
+    evaluate_embedder_with_load(embedder, data, None)
+}
+
+pub fn evaluate_embedder_with_load(
+    embedder: &dyn Embedder,
+    data: &EvalDataset,
+    load_ms: Option<f64>,
+) -> CandidateReport {
     let load_start = Instant::now();
     let _ = embedder.metadata();
-    let load_ms = load_start.elapsed().as_secs_f64() * 1000.0;
+    let load_ms = load_ms.unwrap_or_else(|| load_start.elapsed().as_secs_f64() * 1000.0);
 
     let mut doc_ms = 0.0;
     let mut docs: HashMap<String, Vec<f32>> = HashMap::new();
@@ -271,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn all_four_candidates_produce_reports() {
+    fn historical_standin_reports_are_not_neural_results() {
         let reports = evaluate_all_candidates();
         assert_eq!(reports.len(), 4);
         assert_eq!(
@@ -298,7 +306,7 @@ mod tests {
         assert_eq!(selected.metadata.model_id, catalog::PRODUCTION_MODEL_ID);
         for report in &reports {
             eprintln!(
-                "{} dim={} top1={:.3} recall5={:.3} ndcg5={:.3} order={:.3} q_ms={:.3} d_ms={:.3} load_ms={:.3}",
+                "STAND-IN (not neural) {} dim={} top1={:.3} recall5={:.3} ndcg5={:.3} order={:.3} q_ms={:.3} d_ms={:.3} load_ms={:.3}",
                 report.metadata.exact_name,
                 report.metadata.dimensions,
                 report.top1_relevance,

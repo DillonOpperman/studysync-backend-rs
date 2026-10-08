@@ -14,6 +14,7 @@ pub fn test_config(database_url: &str) -> Config {
             "abcdefghijklmnopqrstuvwxyz012345".into(),
         ),
         ("PUBLIC_BASE_URL".into(), "http://127.0.0.1:8080".into()),
+        ("EMBEDDING_BACKEND".into(), "unavailable".into()),
     ]);
     Config::from_vars(&vars).expect("test config")
 }

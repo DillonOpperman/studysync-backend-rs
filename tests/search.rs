@@ -76,8 +76,22 @@ async fn full_text_search_does_not_require_embeddings() {
 }
 
 #[tokio::test]
+#[ignore = "requires cached or downloadable Qwen3-Embedding-0.6B weights"]
 async fn semantic_search_ranks_related_groups() {
-    let state = test_state().await;
+    use std::sync::Arc;
+    use studysync_backend::embed::qwen::{QwenEmbedder, QwenLoadOptions};
+    use studysync_backend::embed::EmbeddingService;
+
+    let cache = std::env::var("EMBEDDING_CACHE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from(".fastembed_cache"));
+    let qwen = QwenEmbedder::load(QwenLoadOptions {
+        cache_dir: &cache,
+        max_length: 512,
+    })
+    .unwrap_or_else(|error| panic!("Qwen weights are required for semantic search: {error}"));
+    let mut state = test_state().await;
+    state.embeddings = EmbeddingService::from_loaded(Arc::new(qwen));
     let (access, _) = register_user(state.clone()).await;
     let marker = uuid::Uuid::now_v7();
     let net_subject = format!("Networking {marker}");
