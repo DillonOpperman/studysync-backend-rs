@@ -5,6 +5,7 @@ pub mod config;
 pub mod db;
 pub mod domain;
 pub mod error;
+pub mod media;
 pub mod services;
 pub mod telemetry;
 
@@ -16,20 +17,26 @@ use std::sync::Arc;
 use sqlx::PgPool;
 
 use crate::chat::ChatHub;
+use crate::media::Storage;
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: Config,
     pub db: PgPool,
     pub chat: Arc<ChatHub>,
+    pub storage: Arc<dyn Storage>,
 }
 
 impl AppState {
     pub fn new(config: Config, db: PgPool) -> Self {
+        let storage = crate::media::from_config(&config).unwrap_or_else(|_| {
+            Arc::new(crate::media::MemoryStorage::new(config.jwt_secret.clone()))
+        });
         Self {
             config,
             db,
             chat: Arc::new(ChatHub::new()),
+            storage,
         }
     }
 }

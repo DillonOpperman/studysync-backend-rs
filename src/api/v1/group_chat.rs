@@ -21,7 +21,7 @@ pub async fn list_messages(
     let user_id = require_user(auth);
     Ok(Json(
         group_chat::list_group_messages(
-            &state.db,
+            &state,
             user_id,
             group_id,
             query.before,
@@ -46,6 +46,7 @@ pub async fn post_message(
         body.client_msg_id,
         body.content,
         body.message_type.as_deref(),
+        body.attachment_ids,
     )
     .await?;
     Ok((StatusCode::CREATED, Json(dto)))

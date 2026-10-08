@@ -29,6 +29,20 @@ pub struct Config {
     pub server_port: u16,
     pub rust_log: String,
     pub database_pool: DatabasePoolConfig,
+    pub storage: Option<StorageConfig>,
+    pub media_max_bytes: u64,
+    pub media_signed_url_ttl: Duration,
+}
+
+/// S3-compatible object store. Secrets are never included in Debug.
+#[derive(Clone)]
+pub struct StorageConfig {
+    pub endpoint: String,
+    pub bucket: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub region: String,
+    pub force_path_style: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -137,6 +151,33 @@ impl Config {
             )?));
         }
 
+        let media_max_bytes = optional(vars, "MEDIA_MAX_BYTES")
+            .map(|value| parse_u64(value, "MEDIA_MAX_BYTES", 1024, 52_428_800))
+            .transpose()?
+            .unwrap_or(10 * 1024 * 1024);
+        let media_signed_url_ttl = optional(vars, "MEDIA_SIGNED_URL_TTL_SECS")
+            .map(|value| {
+                parse_u32(value, "MEDIA_SIGNED_URL_TTL_SECS", 30, 3600)
+                    .map(|secs| Duration::from_secs(u64::from(secs)))
+            })
+            .transpose()?
+            .unwrap_or(Duration::from_secs(300));
+
+        let storage = if optional(vars, "S3_ENDPOINT").is_some() {
+            Some(StorageConfig {
+                endpoint: required(vars, "S3_ENDPOINT")?,
+                bucket: required(vars, "S3_BUCKET")?,
+                access_key: required(vars, "S3_ACCESS_KEY")?,
+                secret_key: required(vars, "S3_SECRET_KEY")?,
+                region: optional(vars, "S3_REGION").unwrap_or_else(|| "us-east-1".to_string()),
+                force_path_style: optional(vars, "S3_FORCE_PATH_STYLE")
+                    .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+                    .unwrap_or(true),
+            })
+        } else {
+            None
+        };
+
         Ok(Self {
             database_url,
             redis_url,
@@ -146,6 +187,9 @@ impl Config {
             server_port,
             rust_log,
             database_pool,
+            storage,
+            media_max_bytes,
+            media_signed_url_ttl,
         })
     }
 
@@ -159,6 +203,8 @@ impl Config {
             jwt_secret_chars = self.jwt_secret.len(),
             pool_max = self.database_pool.max_connections,
             pool_min = self.database_pool.min_connections,
+            object_storage = self.storage.is_some(),
+            media_max_bytes = self.media_max_bytes,
             "configuration loaded"
         );
     }
@@ -175,6 +221,22 @@ impl fmt::Debug for Config {
             .field("server_port", &self.server_port)
             .field("rust_log", &self.rust_log)
             .field("database_pool", &self.database_pool)
+            .field("storage", &self.storage.as_ref().map(|_| "<redacted>"))
+            .field("media_max_bytes", &self.media_max_bytes)
+            .field("media_signed_url_ttl", &self.media_signed_url_ttl)
+            .finish()
+    }
+}
+
+impl fmt::Debug for StorageConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StorageConfig")
+            .field("endpoint", &self.endpoint)
+            .field("bucket", &self.bucket)
+            .field("access_key", &"<redacted>")
+            .field("secret_key", &"<redacted>")
+            .field("region", &self.region)
+            .field("force_path_style", &self.force_path_style)
             .finish()
     }
 }
@@ -194,6 +256,20 @@ fn optional(vars: &HashMap<String, String>, name: &str) -> Option<String> {
 
 fn parse_u32(value: String, name: &'static str, min: u32, max: u32) -> Result<u32, ConfigError> {
     let parsed: u32 = value.parse().map_err(|_| ConfigError::Invalid {
+        name,
+        reason: "must be a positive integer",
+    })?;
+    if parsed < min || parsed > max {
+        return Err(ConfigError::Invalid {
+            name,
+            reason: "value is out of the allowed range",
+        });
+    }
+    Ok(parsed)
+}
+
+fn parse_u64(value: String, name: &'static str, min: u64, max: u64) -> Result<u64, ConfigError> {
+    let parsed: u64 = value.parse().map_err(|_| ConfigError::Invalid {
         name,
         reason: "must be a positive integer",
     })?;

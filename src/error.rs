@@ -78,6 +78,12 @@ pub enum AppError {
     RateLimited,
     #[error("not allowed to modify this message")]
     CannotModifyMessage,
+    #[error("media not found")]
+    MediaNotFound,
+    #[error("not allowed to access this media")]
+    MediaForbidden,
+    #[error("upload is too large")]
+    UploadTooLarge,
 }
 
 #[derive(Debug, Serialize)]
@@ -136,6 +142,9 @@ impl AppError {
             Self::NotSubscribed => "not_subscribed",
             Self::RateLimited => "rate_limited",
             Self::CannotModifyMessage => "cannot_modify_message",
+            Self::MediaNotFound => "media_not_found",
+            Self::MediaForbidden => "media_forbidden",
+            Self::UploadTooLarge => "upload_too_large",
         }
     }
 
@@ -167,16 +176,19 @@ impl AppError {
             | Self::CannotMessage
             | Self::NotSubscribed
             | Self::EditWindowExpired
-            | Self::CannotModifyMessage => StatusCode::FORBIDDEN,
+            | Self::CannotModifyMessage
+            | Self::MediaForbidden => StatusCode::FORBIDDEN,
             Self::MessageDeleted => StatusCode::CONFLICT,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+            Self::UploadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::UserNotFound
             | Self::GroupNotFound
             | Self::JoinRequestNotFound
             | Self::NotificationNotFound
             | Self::FriendRequestNotFound
             | Self::MessageRequestNotFound
-            | Self::MessageNotFound => StatusCode::NOT_FOUND,
+            | Self::MessageNotFound
+            | Self::MediaNotFound => StatusCode::NOT_FOUND,
         }
     }
 

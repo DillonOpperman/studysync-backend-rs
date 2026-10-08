@@ -83,6 +83,7 @@ pub struct UserProfileDto {
     pub learning_style: String,
     pub performance_level: i16,
     pub profile_picture_key: Option<String>,
+    pub profile_picture: Option<MediaDto>,
     pub study_environments: Vec<String>,
     pub study_methods: Vec<String>,
     pub study_goals: Vec<String>,
@@ -264,8 +265,11 @@ pub struct BlockUserRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SendDirectMessageRequest {
     pub recipient_id: Uuid,
+    #[serde(default)]
     pub content: String,
     pub message_type: Option<String>,
+    #[serde(default)]
+    pub attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -278,6 +282,7 @@ pub struct DirectMessageDto {
     pub message_type: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub read_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub attachments: Vec<MediaDto>,
 }
 
 #[derive(Debug, Serialize)]
@@ -322,8 +327,11 @@ pub struct DirectMessageListQuery {
 #[serde(rename_all = "camelCase")]
 pub struct SendGroupMessageRequest {
     pub client_msg_id: Uuid,
+    #[serde(default)]
     pub content: String,
     pub message_type: Option<String>,
+    #[serde(default)]
+    pub attachment_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -367,6 +375,7 @@ pub struct GroupMessageDto {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub reactions: Vec<ReactionCountDto>,
+    pub attachments: Vec<MediaDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -393,4 +402,16 @@ pub struct CursorPageDto {
     pub next_before: Option<Uuid>,
     /// Newest message id in this page. Pass as `after` to recover newer messages.
     pub next_after: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaDto {
+    pub id: Uuid,
+    pub file_name: String,
+    pub content_type: String,
+    pub byte_size: i32,
+    pub kind: String,
+    pub status: String,
+    pub download_url: Option<String>,
 }

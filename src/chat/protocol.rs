@@ -25,6 +25,8 @@ pub enum ClientOp {
         content: String,
         #[serde(rename = "messageType")]
         message_type: Option<String>,
+        #[serde(default, rename = "attachmentIds")]
+        attachment_ids: Vec<Uuid>,
     },
     #[serde(rename = "reaction.toggle")]
     ReactionToggle {

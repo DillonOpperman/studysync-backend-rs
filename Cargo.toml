@@ -8,7 +8,8 @@ description = "StudySync production API (Rust). This repository is not the legac
 
 [dependencies]
 argon2 = { version = "0.5", features = ["std"] }
-axum = { version = "0.8", features = ["ws"] }
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws", "multipart"] }
 base64 = "0.22"
 bcrypt = "0.16"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
@@ -16,8 +17,11 @@ chrono-tz = "0.10"
 dotenvy = "0.15"
 futures-util = "0.3"
 hex = "0.4"
+hmac = "0.12"
 jsonwebtoken = "9"
 rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+rusty-s3 = "0.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -36,6 +40,7 @@ tower-http = { version = "0.6", features = ["trace", "timeout", "request-id", "u
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1", features = ["v7", "std", "serde"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 http-body-util = "0.1"

@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::{Duration, Utc};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::api::dto::{
-    CursorPageDto, GroupMessageDto, GroupMessagePageDto, ReactionCountDto, ReactionStateDto,
+    CursorPageDto, GroupMessageDto, GroupMessagePageDto, MediaDto, ReactionCountDto,
+    ReactionStateDto,
 };
 use crate::auth::{is_blocked, require_group_member};
 use crate::chat::ServerEvent;
@@ -35,12 +35,9 @@ pub fn validate_content(content: &str) -> Result<String, AppError> {
 pub fn validate_message_type(message_type: Option<&str>) -> Result<String, AppError> {
     let value = message_type.unwrap_or(group_chat::TYPE_TEXT).trim();
     match value {
-        "text" | "announcement" => Ok(value.to_string()),
-        "image" | "file" => Err(AppError::validation(
-            "image and file messages are not supported yet",
-        )),
+        "text" | "announcement" | "image" | "file" => Ok(value.to_string()),
         _ => Err(AppError::validation(
-            "messageType must be text or announcement",
+            "messageType must be text, announcement, image, or file",
         )),
     }
 }
@@ -79,7 +76,11 @@ async fn lock_active_group(
     Ok(group)
 }
 
-fn message_dto(row: &GroupMessageRow, reactions: Vec<ReactionCountDto>) -> GroupMessageDto {
+fn message_dto(
+    row: &GroupMessageRow,
+    reactions: Vec<ReactionCountDto>,
+    attachments: Vec<MediaDto>,
+) -> GroupMessageDto {
     GroupMessageDto {
         id: row.id,
         group_id: row.group_id,
@@ -91,6 +92,7 @@ fn message_dto(row: &GroupMessageRow, reactions: Vec<ReactionCountDto>) -> Group
         edited_at: row.edited_at,
         deleted_at: row.deleted_at,
         reactions,
+        attachments,
     }
 }
 
@@ -114,12 +116,19 @@ async fn reactions_map(
 }
 
 async fn dto_with_reactions(
+    state: &AppState,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     row: &GroupMessageRow,
     viewer_id: Uuid,
 ) -> Result<GroupMessageDto, AppError> {
     let mut map = reactions_map(tx, &[row.id], viewer_id).await?;
-    Ok(message_dto(row, map.remove(&row.id).unwrap_or_default()))
+    let mut attachments =
+        crate::services::media::dtos_for_group_messages(state, tx, &[row.id]).await?;
+    Ok(message_dto(
+        row,
+        map.remove(&row.id).unwrap_or_default(),
+        attachments.remove(&row.id).unwrap_or_default(),
+    ))
 }
 
 async fn skip_blocked(
@@ -139,15 +148,46 @@ pub async fn send_group_message(
     client_msg_id: Uuid,
     content: String,
     message_type: Option<&str>,
+    attachment_ids: Vec<Uuid>,
 ) -> Result<GroupMessageDto, AppError> {
-    let content = validate_content(&content)?;
     let message_type = validate_message_type(message_type)?;
+    let content = if matches!(message_type.as_str(), "image" | "file") {
+        let trimmed = content.trim();
+        if trimmed.chars().count() > MAX_CONTENT_CHARS {
+            return Err(AppError::validation(format!(
+                "content must be at most {MAX_CONTENT_CHARS} characters"
+            )));
+        }
+        trimmed.to_string()
+    } else {
+        validate_content(&content)?
+    };
+    if matches!(message_type.as_str(), "image" | "file") && attachment_ids.is_empty() {
+        return Err(AppError::validation(
+            "image and file messages require attachments",
+        ));
+    }
+    if !attachment_ids.is_empty() && !matches!(message_type.as_str(), "image" | "file") {
+        return Err(AppError::validation(
+            "attachments are only allowed on image or file messages",
+        ));
+    }
     let mut tx = state.db.begin().await.map_err(crate::error::map_db_error)?;
     require_active_user(&mut tx, sender_id).await?;
     lock_active_group(&mut tx, group_id).await?;
     let member = require_group_member(&mut tx, group_id, sender_id).await?;
     if message_type == group_chat::TYPE_ANNOUNCEMENT && member.role != groups::MEMBER_ROLE_LEADER {
         return Err(AppError::NotGroupLeader);
+    }
+    if !attachment_ids.is_empty() {
+        crate::services::media::lock_and_validate_group_attachments(
+            &mut tx,
+            sender_id,
+            group_id,
+            &attachment_ids,
+            &message_type,
+        )
+        .await?;
     }
 
     let id = Uuid::now_v7();
@@ -172,6 +212,11 @@ pub async fn send_group_message(
         }
     };
 
+    if created && !attachment_ids.is_empty() {
+        crate::db::media::attach_to_group_message(&mut tx, &attachment_ids, row.id, Utc::now())
+            .await?;
+    }
+
     if created && message_type == group_chat::TYPE_ANNOUNCEMENT {
         let members = groups::list_active_members(&mut *tx, group_id).await?;
         for other in members.into_iter().filter(|m| m.user_id != sender_id) {
@@ -190,7 +235,7 @@ pub async fn send_group_message(
         }
     }
 
-    let dto = dto_with_reactions(&mut tx, &row, sender_id).await?;
+    let dto = dto_with_reactions(state, &mut tx, &row, sender_id).await?;
     let skip = skip_blocked(&mut tx, sender_id).await?;
     tx.commit().await.map_err(crate::error::map_db_error)?;
 
@@ -210,7 +255,7 @@ pub async fn send_group_message(
 }
 
 pub async fn list_group_messages(
-    pool: &PgPool,
+    state: &AppState,
     user_id: Uuid,
     group_id: Uuid,
     before: Option<Uuid>,
@@ -221,7 +266,7 @@ pub async fn list_group_messages(
         return Err(AppError::validation("provide only one of before or after"));
     }
     let limit = limit.unwrap_or(50).clamp(1, 100);
-    let mut tx = pool.begin().await.map_err(crate::error::map_db_error)?;
+    let mut tx = state.db.begin().await.map_err(crate::error::map_db_error)?;
     require_active_user(&mut tx, user_id).await?;
     let group = groups::get_group(&mut *tx, group_id)
         .await?
@@ -250,11 +295,19 @@ pub async fn list_group_messages(
     rows.reverse();
     let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
     let mut map = reactions_map(&mut tx, &ids, user_id).await?;
+    let mut attachments =
+        crate::services::media::dtos_for_group_messages(state, &mut tx, &ids).await?;
     tx.commit().await.map_err(crate::error::map_db_error)?;
 
     let messages: Vec<GroupMessageDto> = rows
         .iter()
-        .map(|row| message_dto(row, map.remove(&row.id).unwrap_or_default()))
+        .map(|row| {
+            message_dto(
+                row,
+                map.remove(&row.id).unwrap_or_default(),
+                attachments.remove(&row.id).unwrap_or_default(),
+            )
+        })
         .collect();
     let next_before = messages.first().map(|m| m.id);
     let next_after = messages.last().map(|m| m.id);
@@ -293,7 +346,7 @@ pub async fn edit_group_message(
         return Err(AppError::EditWindowExpired);
     }
     let updated = group_chat::update_content(&mut tx, message_id, &content, Utc::now()).await?;
-    let dto = dto_with_reactions(&mut tx, &updated, user_id).await?;
+    let dto = dto_with_reactions(state, &mut tx, &updated, user_id).await?;
     let skip = skip_blocked(&mut tx, user_id).await?;
     let group_id = dto.group_id;
     tx.commit().await.map_err(crate::error::map_db_error)?;
@@ -333,10 +386,18 @@ pub async fn delete_group_message(
     } else {
         group_chat::soft_delete(&mut tx, message_id, Utc::now()).await?
     };
-    let dto = dto_with_reactions(&mut tx, &updated, user_id).await?;
+    let removed = if already {
+        Vec::new()
+    } else {
+        crate::db::media::mark_deleted_for_group_message(&mut tx, message_id, Utc::now()).await?
+    };
+    let dto = dto_with_reactions(state, &mut tx, &updated, user_id).await?;
     let skip = skip_blocked(&mut tx, user_id).await?;
     let group_id = dto.group_id;
     tx.commit().await.map_err(crate::error::map_db_error)?;
+    for media in removed {
+        let _ = state.storage.delete(&media.storage_key).await;
+    }
     if !already {
         state
             .chat

@@ -146,6 +146,7 @@ async fn to_dto(
         learning_style: user.learning_style,
         performance_level: user.performance_level,
         profile_picture_key: user.profile_picture_key,
+        profile_picture: None,
         study_environments: environments,
         study_methods: methods,
         study_goals: goals,
@@ -229,8 +230,10 @@ pub async fn patch_me(
     if let Some(level) = request.performance_level {
         user.performance_level = domain::validate_performance_level(level)?;
     }
-    if let Some(key) = request.profile_picture_key.as_deref() {
-        user.profile_picture_key = Some(domain::validate_storage_key(key)?);
+    if request.profile_picture_key.is_some() {
+        return Err(AppError::validation(
+            "upload profile pictures with PUT /api/v1/me/profile-picture",
+        ));
     }
     user.updated_at = Utc::now();
     identity::update_user_core(&mut tx, &user).await?;

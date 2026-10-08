@@ -8,9 +8,14 @@ mod friends;
 mod group_chat;
 mod groups;
 mod health;
+mod media;
 mod messages;
 mod notifications;
 mod users;
+
+pub fn media_routes(max_bytes: usize) -> Router<AppState> {
+    media::routes(max_bytes)
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()

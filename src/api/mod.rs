@@ -43,12 +43,13 @@ pub fn router(state: AppState) -> Router {
         )
     });
 
+    let max_bytes = state.config.media_max_bytes as usize;
     // Timeouts apply to REST only. Long-lived WebSockets are idle by design.
     let http = Router::new()
-        .nest("/api/v1", v1::router())
+        .nest("/api/v1", v1::router().merge(v1::media_routes(max_bytes)))
         .layer(TimeoutLayer::with_status_code(
             axum::http::StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         ));
 
     let ws = Router::new().route("/api/v1/ws", axum::routing::get(crate::chat::upgrade));

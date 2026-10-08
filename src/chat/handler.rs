@@ -200,6 +200,7 @@ async fn dispatch(state: &AppState, user_id: Uuid, conn_id: ConnectionId, text: 
             client_msg_id,
             content,
             message_type,
+            attachment_ids,
         } => {
             if !state.chat.is_subscribed(conn_id, group_id).await {
                 Err(AppError::NotSubscribed)
@@ -211,6 +212,7 @@ async fn dispatch(state: &AppState, user_id: Uuid, conn_id: ConnectionId, text: 
                     client_msg_id,
                     content,
                     message_type.as_deref(),
+                    attachment_ids,
                 )
                 .await
                 .map(|_| ())

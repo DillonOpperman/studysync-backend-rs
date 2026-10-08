@@ -18,7 +18,7 @@ pub async fn send(
     Json(body): Json<SendDirectMessageRequest>,
 ) -> Result<(StatusCode, Json<SendDirectMessageResponse>), AppError> {
     let user_id = require_user(auth);
-    let outcome = services::messages::send_direct_message(&state.db, user_id, body).await?;
+    let outcome = services::messages::send_direct_message(&state, user_id, body).await?;
     let (status, body) = match outcome {
         SendDmOutcome::DirectMessage { message } => (
             StatusCode::CREATED,
@@ -45,7 +45,7 @@ pub async fn list_thread(
     let reader_id = require_user(auth);
     Ok(Json(
         services::messages::list_direct_messages(
-            &state.db,
+            &state,
             reader_id,
             user_id,
             query.before,

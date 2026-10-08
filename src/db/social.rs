@@ -491,6 +491,20 @@ pub async fn reject_pending_message_requests_between(
     Ok(())
 }
 
+pub async fn get_direct_message(
+    executor: impl sqlx::Executor<'_, Database = Postgres>,
+    message_id: Uuid,
+) -> Result<Option<DirectMessageRow>, AppError> {
+    sqlx::query_as::<_, DirectMessageRow>(
+        "SELECT id, sender_id, receiver_id, content, message_type, created_at, read_at
+         FROM direct_messages WHERE id = $1",
+    )
+    .bind(message_id)
+    .fetch_optional(executor)
+    .await
+    .map_err(map_db_error)
+}
+
 pub async fn insert_direct_message(
     tx: &mut Transaction<'_, Postgres>,
     row: &DirectMessageRow,

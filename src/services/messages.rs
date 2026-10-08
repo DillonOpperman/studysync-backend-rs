@@ -3,7 +3,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::api::dto::{
-    DirectMessageDto, MessageRequestDto, SendDirectMessageRequest, SendDmOutcome, UserSummaryDto,
+    DirectMessageDto, MediaDto, MessageRequestDto, SendDirectMessageRequest, SendDmOutcome,
+    UserSummaryDto,
 };
 use crate::auth::social::{are_friends, require_not_blocked};
 use crate::db::groups;
@@ -11,6 +12,7 @@ use crate::db::identity;
 use crate::db::notifications;
 use crate::db::social::{self, DirectMessageRow, MessageRequestRow};
 use crate::error::AppError;
+use crate::AppState;
 
 const MAX_CONTENT_LEN: usize = 4000;
 
@@ -18,45 +20,80 @@ const MAX_CONTENT_LEN: usize = 4000;
 /// recipient is an active study-group leader. WebSocket handlers should call
 /// this same function rather than writing SQL.
 pub async fn send_direct_message(
-    pool: &PgPool,
+    state: &AppState,
     sender_id: Uuid,
     request: SendDirectMessageRequest,
 ) -> Result<SendDmOutcome, AppError> {
     if sender_id == request.recipient_id {
         return Err(AppError::validation("cannot message yourself"));
     }
-    let content = request.content.trim();
-    if content.is_empty() {
-        return Err(AppError::validation("content is required"));
-    }
-    if content.len() > MAX_CONTENT_LEN {
-        return Err(AppError::validation("content is too long"));
-    }
     let message_type = request.message_type.as_deref().unwrap_or("text");
-    if message_type != "text" {
+    if !matches!(message_type, "text" | "image" | "file") {
         return Err(AppError::validation(
-            "only text messages are supported until the media phase",
+            "messageType must be text, image, or file",
         ));
+    }
+    let content = request.content.trim();
+    if matches!(message_type, "image" | "file") {
+        if content.len() > MAX_CONTENT_LEN {
+            return Err(AppError::validation("content is too long"));
+        }
+        if request.attachment_ids.is_empty() {
+            return Err(AppError::validation(
+                "image and file messages require attachments",
+            ));
+        }
+    } else {
+        if content.is_empty() {
+            return Err(AppError::validation("content is required"));
+        }
+        if content.len() > MAX_CONTENT_LEN {
+            return Err(AppError::validation("content is too long"));
+        }
+        if !request.attachment_ids.is_empty() {
+            return Err(AppError::validation(
+                "attachments are only allowed on image or file messages",
+            ));
+        }
     }
 
     let now = Utc::now();
-    let mut tx = pool.begin().await.map_err(crate::error::map_db_error)?;
+    let mut tx = state.db.begin().await.map_err(crate::error::map_db_error)?;
     require_active(&mut tx, sender_id).await?;
     require_active(&mut tx, request.recipient_id).await?;
     require_not_blocked(&mut tx, sender_id, request.recipient_id).await?;
 
     if can_send_dm(&mut tx, sender_id, request.recipient_id).await? {
+        if !request.attachment_ids.is_empty() {
+            crate::services::media::lock_and_validate_dm_attachments(
+                &mut tx,
+                sender_id,
+                request.recipient_id,
+                &request.attachment_ids,
+                message_type,
+            )
+            .await?;
+        }
         let message_id = Uuid::now_v7();
         let row = DirectMessageRow {
             id: message_id,
             sender_id,
             receiver_id: request.recipient_id,
             content: content.to_string(),
-            message_type: "text".to_string(),
+            message_type: message_type.to_string(),
             created_at: now,
             read_at: None,
         };
         social::insert_direct_message(&mut tx, &row).await?;
+        if !request.attachment_ids.is_empty() {
+            crate::db::media::attach_to_direct_message(
+                &mut tx,
+                &request.attachment_ids,
+                message_id,
+                now,
+            )
+            .await?;
+        }
         notifications::insert_notification(
             &mut tx,
             request.recipient_id,
@@ -67,9 +104,18 @@ pub async fn send_direct_message(
         )
         .await?;
         tx.commit().await.map_err(crate::error::map_db_error)?;
+        let attachments =
+            crate::services::media::dtos_for_direct_messages(state, &state.db, &[message_id])
+                .await?
+                .remove(&message_id)
+                .unwrap_or_default();
         return Ok(SendDmOutcome::DirectMessage {
-            message: message_dto(&row),
+            message: message_dto(&row, attachments),
         });
+    }
+
+    if !request.attachment_ids.is_empty() {
+        return Err(AppError::CannotMessage);
     }
 
     if !groups::user_is_active_group_leader(&mut *tx, request.recipient_id).await? {
@@ -121,7 +167,7 @@ pub async fn send_direct_message(
 }
 
 pub async fn list_direct_messages(
-    pool: &PgPool,
+    state: &AppState,
     reader_id: Uuid,
     other_id: Uuid,
     before: Option<Uuid>,
@@ -134,7 +180,7 @@ pub async fn list_direct_messages(
         ));
     }
     let limit = limit.unwrap_or(50).clamp(1, 100);
-    let mut tx = pool.begin().await.map_err(crate::error::map_db_error)?;
+    let mut tx = state.db.begin().await.map_err(crate::error::map_db_error)?;
     require_active(&mut tx, other_id).await?;
     require_not_blocked(&mut tx, reader_id, other_id).await?;
     social::mark_incoming_read(&mut *tx, reader_id, other_id, Utc::now()).await?;
@@ -142,7 +188,13 @@ pub async fn list_direct_messages(
         social::list_direct_messages(&mut *tx, reader_id, other_id, before, after, limit).await?;
     tx.commit().await.map_err(crate::error::map_db_error)?;
     rows.reverse();
-    Ok(rows.iter().map(message_dto).collect())
+    let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
+    let mut attachments =
+        crate::services::media::dtos_for_direct_messages(state, &state.db, &ids).await?;
+    Ok(rows
+        .iter()
+        .map(|row| message_dto(row, attachments.remove(&row.id).unwrap_or_default()))
+        .collect())
 }
 
 pub async fn list_message_requests(
@@ -212,7 +264,7 @@ pub async fn reject_message_request(
     Ok(message_request_dto(&row))
 }
 
-async fn can_send_dm(
+pub(crate) async fn can_send_dm(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     sender_id: Uuid,
     recipient_id: Uuid,
@@ -237,7 +289,7 @@ async fn require_active(
     Ok(())
 }
 
-fn message_dto(row: &DirectMessageRow) -> DirectMessageDto {
+fn message_dto(row: &DirectMessageRow, attachments: Vec<MediaDto>) -> DirectMessageDto {
     DirectMessageDto {
         id: row.id,
         sender_id: row.sender_id,
@@ -246,6 +298,7 @@ fn message_dto(row: &DirectMessageRow) -> DirectMessageDto {
         message_type: row.message_type.clone(),
         created_at: row.created_at,
         read_at: row.read_at,
+        attachments,
     }
 }
 

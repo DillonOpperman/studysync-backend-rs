@@ -72,9 +72,8 @@ async fn add_member(
     assert_eq!(status, StatusCode::OK, "{json}");
 }
 
-type WsStream = tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
->;
+type WsStream =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 async fn connect(port: u16, token: &str) -> WsStream {
     let url = format!("ws://127.0.0.1:{port}/api/v1/ws?access_token={token}");

@@ -4,7 +4,7 @@ This is the **new** production API. It is a separate Git repository from the leg
 
 Do not copy this project into the old Flask tree. Do not push it to `DillonOpperman/studysync-backend`.
 
-This repository currently implements Phases 1–5: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, and persistent group chat with authenticated WebSockets. Matching, media uploads, and DM WebSockets are later phases.
+This repository currently implements Phases 1–6: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, persistent group chat with authenticated WebSockets, and private object-storage media. Matching, push, and DM WebSockets are later phases.
 
 ## Prerequisites (Windows)
 
@@ -154,9 +154,23 @@ Weekly slots store `day_of_week` (0 = Monday … 6 = Sunday), `start_time`, `end
 
 Same-day windows have `end_time > start_time`. Overnight windows (for example 23:00 → 01:00) are stored as **one row** with `end_time < start_time`. Matching must expand those as `[start, 24:00)` on `day_of_week` and `[00:00, end)` on the next day. Zero-length windows (`end == start`) are rejected.
 
+## Media (Phase 6)
+
+Object storage is behind the `Storage` trait (`src/media/`). When `S3_ENDPOINT` is set the API talks to S3-compatible storage (Compose `studysync-minio` / S3Mock in development). Tests without those variables use an in-memory store. Credentials never appear in JSON or logs.
+
+**Allowlist:** PNG, JPEG, GIF, WebP, PDF, DOCX, XLSX, PPTX. Max **10 MB** (`MEDIA_MAX_BYTES`). Legacy OLE (`.doc`/`.xls`/`.ppt`) is not accepted.
+
+**Keys** are server-generated (`profiles/{userId}/{mediaId}.ext`, `groups/{groupId}/{mediaId}.ext`, `direct-messages/{ownerId}/{mediaId}.ext`). Display `fileName` is sanitized and never used as a path.
+
+**API:** `POST /api/v1/media` (multipart `file` + `purpose` + `groupId` or `recipientId`), `GET /api/v1/media/:id`, `GET /api/v1/media/:id/content`, `DELETE /api/v1/media/:id` (unattached uploads only), `PUT /api/v1/me/profile-picture`. `GET` returns a short-lived `downloadUrl` (S3 presign or HMAC `memory://` URL). Raw storage keys are not authorization.
+
+**Lifecycle:** `uploaded` → `attached` (message/profile) → `deleted`. Abandoned `uploaded` rows older than 24h are removed by `cleanup_orphaned_media` (run on a schedule in production). Message deletion tombstones attachments and best-effort-deletes objects. Profile replace updates the DB first, then deletes the old object.
+
+**PATCH /me** rejects `profilePictureKey`; pictures must be uploaded.
+
 ## Profile pictures
 
-`profilePictureKey` is a future object-storage key. It is not authorization. The media phase must own uploads, bind keys to the user, and issue signed URLs. Clients must not present arbitrary keys as proof of access.
+`profilePictureKey` is an internal storage key on the user row. It is not authorization. Use `PUT /api/v1/me/profile-picture` and `GET /api/v1/media/:id`.
 
 ## Friendships (Phase 4)
 
@@ -179,7 +193,7 @@ PostgreSQL is the source of truth. WebSocket delivery is best-effort.
 - **Announcements:** current leader only. Other members get an in-app `group_announcement` notification. Ordinary text messages are not fanned out as notifications.
 - **Hub:** in-memory rooms for a single API process. Bounded outbound queue (64). Slow clients are disconnected. Heartbeat: JSON `ping`/`pong`; idle sockets close after 90s.
 - **Blocks:** members may still persist group messages; live events are not delivered to users who have a block with the actor, and blocked users cannot react to each other's messages. Re-check membership on every send (subscribe is not a permanent grant).
-- **Media:** `message_attachments` exists for a later phase. `image`/`file` types are rejected until then.
+- **Media:** upload via REST multipart, then send `attachmentIds` on image/file messages. WebSockets do not carry binary.
 - **Scaling (later):** Instance A/B/C → Redis pub/sub → local hub fan-out. Redis is not used for chat in this phase.
 
 ## Groups (Phase 3)
