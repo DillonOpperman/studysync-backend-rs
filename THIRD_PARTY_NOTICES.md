@@ -47,6 +47,10 @@ This product is intended for commercial/public release. Licenses below were read
 - Source: https://huggingface.co/intfloat/multilingual-e5-large-instruct
 - Not selected: 512-token context is tighter than Qwen; similar size to BGE with less operational upside for StudySync after the frozen eval.
 
-## In-process evaluation encoder
+## Runtime (Candle)
 
-CI and local tests use a deterministic hashed n-gram encoder that applies each candidate’s documented query/document formatting and dimensions. It is **not** a substitute for the official neural weights in production quality claims about MTEB. Official Qwen weights must be loaded at deploy time from the pinned revision above.
+The Qwen3 decoder used at inference time is a text-only Candle port adapted from Anush008/fastembed-rs (`qwen3` feature, Apache-2.0). This repository does not depend on `fastembed` or ONNX Runtime.
+
+Production loads the official Qwen tokenizer and safetensors via Hugging Face Hub into `EMBEDDING_CACHE_DIR`. Weights are not in git. Runtime: in-process Candle Qwen3 transformer on CPU (F32), 1024-d L2-normalized last-token pooling, instruct-formatted queries. ONNX Runtime is not used.
+
+The hashed n-gram encoder remains a **unit-test-only** stand-in. It is not selectable as `EMBEDDING_BACKEND` and must not be treated as Qwen quality evidence. Historical stand-in numbers are labeled in `eval/RESULTS.md`.
