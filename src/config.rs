@@ -36,6 +36,17 @@ pub struct Config {
     pub embedding_backend: EmbeddingBackend,
     pub embedding_cache_dir: PathBuf,
     pub embedding_max_length: usize,
+    pub push: PushSettings,
+}
+
+/// FCM HTTP v1. Delivery is off unless credentials exist. Secrets stay off this type's Debug.
+#[derive(Clone)]
+pub struct PushSettings {
+    pub requested: bool,
+    pub delivery_enabled: bool,
+    pub project_id: Option<String>,
+    pub credentials_path: Option<PathBuf>,
+    pub send_url_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,6 +236,8 @@ impl Config {
             .map(|value| value as usize)
             .unwrap_or(512);
 
+        let push = parse_push_settings(vars)?;
+
         Ok(Self {
             database_url,
             redis_url,
@@ -240,6 +253,7 @@ impl Config {
             embedding_backend,
             embedding_cache_dir,
             embedding_max_length,
+            push,
         })
     }
 
@@ -258,6 +272,8 @@ impl Config {
             embedding_backend = ?self.embedding_backend,
             embedding_cache = %self.embedding_cache_dir.display(),
             embedding_max_length = self.embedding_max_length,
+            push_requested = self.push.requested,
+            push_delivery_enabled = self.push.delivery_enabled,
             "configuration loaded"
         );
     }
@@ -280,6 +296,8 @@ impl fmt::Debug for Config {
             .field("embedding_backend", &self.embedding_backend)
             .field("embedding_cache_dir", &self.embedding_cache_dir)
             .field("embedding_max_length", &self.embedding_max_length)
+            .field("push_requested", &self.push.requested)
+            .field("push_delivery_enabled", &self.push.delivery_enabled)
             .finish()
     }
 }
@@ -308,6 +326,39 @@ fn optional(vars: &HashMap<String, String>, name: &str) -> Option<String> {
     vars.get(name)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn parse_push_settings(vars: &HashMap<String, String>) -> Result<PushSettings, ConfigError> {
+    let requested = match optional(vars, "PUSH_ENABLED") {
+        Some(value) => parse_bool(value, "PUSH_ENABLED")?,
+        None => false,
+    };
+    let project_id = optional(vars, "FCM_PROJECT_ID");
+    let credentials_path = optional(vars, "GOOGLE_APPLICATION_CREDENTIALS").map(PathBuf::from);
+    let send_url_override = optional(vars, "FCM_SEND_URL");
+    let credentials_readable = credentials_path
+        .as_ref()
+        .map(|path| path.is_file())
+        .unwrap_or(false);
+    let delivery_enabled = requested && project_id.is_some() && credentials_readable;
+    Ok(PushSettings {
+        requested,
+        delivery_enabled,
+        project_id,
+        credentials_path,
+        send_url_override,
+    })
+}
+
+fn parse_bool(value: String, name: &'static str) -> Result<bool, ConfigError> {
+    match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(ConfigError::Invalid {
+            name,
+            reason: "must be true or false",
+        }),
+    }
 }
 
 fn parse_u32(value: String, name: &'static str, min: u32, max: u32) -> Result<u32, ConfigError> {
@@ -364,6 +415,18 @@ mod tests {
         assert!(config.redis_url.is_none());
         assert_eq!(config.database_pool.max_connections, 10);
         assert_eq!(config.embedding_backend, EmbeddingBackend::Nomic);
+        assert!(!config.push.requested);
+        assert!(!config.push.delivery_enabled);
+    }
+
+    #[test]
+    fn push_stays_disabled_without_credentials() {
+        let mut vars = base_vars();
+        vars.insert("PUSH_ENABLED".into(), "true".into());
+        vars.insert("FCM_PROJECT_ID".into(), "demo".into());
+        let config = Config::from_vars(&vars).expect("config");
+        assert!(config.push.requested);
+        assert!(!config.push.delivery_enabled);
     }
 
     #[test]

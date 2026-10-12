@@ -29,6 +29,25 @@ pub async fn list(
         .collect())
 }
 
+pub async fn get_one(
+    pool: &PgPool,
+    user_id: Uuid,
+    notification_id: Uuid,
+) -> Result<NotificationDto, AppError> {
+    let row = notifications::get_owned(pool, user_id, notification_id)
+        .await?
+        .ok_or(AppError::NotificationNotFound)?;
+    Ok(NotificationDto {
+        id: row.id,
+        ntype: row.ntype,
+        title: row.title,
+        body: row.body,
+        data: row.data.0,
+        read_at: row.read_at,
+        created_at: row.created_at,
+    })
+}
+
 pub async fn mark_read(
     pool: &PgPool,
     user_id: Uuid,

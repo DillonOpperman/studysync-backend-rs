@@ -10,6 +10,7 @@ pub mod identity;
 pub mod media;
 pub mod notifications;
 pub mod profile;
+pub mod push;
 pub mod social;
 
 /// Create a PostgreSQL pool. Failures must not include credentials in user-facing output.

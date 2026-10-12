@@ -9,6 +9,17 @@ use crate::error::AppError;
 use crate::services;
 use crate::AppState;
 
+pub async fn get_one(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(notification_id): Path<Uuid>,
+) -> Result<Json<NotificationDto>, AppError> {
+    let user_id = require_user(auth);
+    Ok(Json(
+        services::notifications::get_one(&state.db, user_id, notification_id).await?,
+    ))
+}
+
 pub async fn list(
     State(state): State<AppState>,
     auth: AuthUser,

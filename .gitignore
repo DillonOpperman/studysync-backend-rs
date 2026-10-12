@@ -9,6 +9,10 @@
 .env
 .env.*
 !.env.example
+*-firebase-adminsdk-*.json
+fcm-service-account.json
+google-services.json
+GoogleService-Info.plist
 
 # OS
 Thumbs.db

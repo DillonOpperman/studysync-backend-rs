@@ -32,6 +32,7 @@ async fn run() -> Result<(), String> {
 
     let addr = SocketAddr::new(config.server_host, config.server_port);
     let state = AppState::try_new(config, pool)?;
+    studysync_backend::push::spawn_worker(state.db.clone(), state.push.clone());
     let app = api::router(state);
 
     let listener = tokio::net::TcpListener::bind(addr)

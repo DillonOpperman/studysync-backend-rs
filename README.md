@@ -4,7 +4,7 @@ This is the **new** production API. It is a separate Git repository from the leg
 
 Do not copy this project into the old Flask tree. Do not push it to `DillonOpperman/studysync-backend`.
 
-This repository currently implements Phases 1–7: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, persistent group chat with authenticated WebSockets, private object-storage media, versioned pgvector embeddings, recommendations, and group search (`fullText` default, `semantic`). Push and DM WebSockets remain later phases.
+This repository currently implements Phases 1–7 plus Phase 8G.2 push infrastructure: configuration, tracing, SQLx migrations, PostgreSQL, health/ready, authentication, users, profiles, groups, friends/DMs/blocks, persistent group chat with authenticated WebSockets, private object-storage media, versioned pgvector embeddings, recommendations, group search (`fullText` default, `semantic`), and optional FCM HTTP v1 delivery of existing PostgreSQL notifications. See `docs/PUSH_NOTIFICATIONS_SETUP.md`. DM WebSockets remain a later phase.
 
 Production embedding model: `nomic-ai/nomic-embed-text-v1.5` at revision `e9b6763023c676ca8431644204f50c2b100d9aab` (`nomic-embed-text-v1.5:v1`, 768-d), Candle NomicBert CPU. Fallback MiniLM. First `EMBEDDING_BACKEND=nomic` start downloads into `.fastembed_cache`. See `THIRD_PARTY_NOTICES.md` and `docs/phase7-embedding-evaluation.md`.
 

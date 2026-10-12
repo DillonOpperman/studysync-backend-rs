@@ -463,3 +463,42 @@ pub struct GroupSearchResultDto {
     pub group: GroupDto,
     pub score: f32,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterPushDeviceRequest {
+    pub platform: String,
+    pub token: String,
+    pub installation_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushDeviceDto {
+    pub id: Uuid,
+    pub platform: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub last_seen_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePushPreferencesRequest {
+    pub push_enabled: Option<bool>,
+    pub friends: Option<bool>,
+    pub groups: Option<bool>,
+    pub messages: Option<bool>,
+    pub announcements: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushPreferencesDto {
+    pub push_enabled: bool,
+    pub friends: bool,
+    pub groups: bool,
+    pub messages: bool,
+    pub announcements: bool,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}

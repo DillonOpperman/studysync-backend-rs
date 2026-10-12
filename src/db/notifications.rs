@@ -24,12 +24,13 @@ pub async fn insert_notification(
     title: &str,
     body: &str,
     data: Value,
-) -> Result<(), AppError> {
+) -> Result<Uuid, AppError> {
+    let id = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO notifications (id, user_id, type, title, body, data)
          VALUES ($1,$2,$3,$4,$5,$6)",
     )
-    .bind(Uuid::now_v7())
+    .bind(id)
     .bind(user_id)
     .bind(ntype)
     .bind(title)
@@ -38,7 +39,8 @@ pub async fn insert_notification(
     .execute(&mut **tx)
     .await
     .map_err(map_db_error)?;
-    Ok(())
+    crate::db::push::enqueue_outbox_tx(tx, id, user_id).await?;
+    Ok(id)
 }
 
 pub async fn list_for_user(

@@ -48,6 +48,8 @@ pub enum AppError {
     CannotRemoveLeader,
     #[error("notification not found")]
     NotificationNotFound,
+    #[error("device registration not found")]
+    DeviceNotFound,
     #[error("cannot interact with this user")]
     UserBlocked,
     #[error("already friends")]
@@ -131,6 +133,7 @@ impl AppError {
             Self::CannotLeaveAsLeader => "cannot_leave_as_leader",
             Self::CannotRemoveLeader => "cannot_remove_leader",
             Self::NotificationNotFound => "notification_not_found",
+            Self::DeviceNotFound => "device_not_found",
             Self::UserBlocked => "user_blocked",
             Self::AlreadyFriends => "already_friends",
             Self::FriendRequestPending => "friend_request_pending",
@@ -193,6 +196,7 @@ impl AppError {
             | Self::GroupNotFound
             | Self::JoinRequestNotFound
             | Self::NotificationNotFound
+            | Self::DeviceNotFound
             | Self::FriendRequestNotFound
             | Self::MessageRequestNotFound
             | Self::MessageNotFound

@@ -11,6 +11,7 @@ mod health;
 mod media;
 mod messages;
 mod notifications;
+mod push;
 mod recommend;
 mod search;
 mod users;
@@ -59,6 +60,13 @@ pub fn router() -> Router<AppState> {
             post(notifications::mark_all_read),
         )
         .route("/notifications/{id}/read", post(notifications::mark_read))
+        .route("/notifications/{id}", get(notifications::get_one))
+        .route("/push/devices", post(push::register_device))
+        .route("/push/devices/{id}", delete(push::unregister_device))
+        .route(
+            "/push/preferences",
+            get(push::get_preferences).put(push::update_preferences),
+        )
         .route(
             "/friends/requests",
             post(friends::send_request).get(friends::list_requests),
